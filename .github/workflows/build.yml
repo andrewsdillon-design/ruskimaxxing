@@ -1,0 +1,88 @@
+name: Build apps
+
+# Every push to main builds the Windows, macOS and Linux apps plus the Excel
+# spreadsheet (download them from the run's "Artifacts" section).
+# Pushing a version tag (e.g. v1.0.0) also publishes them as a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: RuskiMaxxing-Windows.exe
+          - os: macos-latest
+            asset: RuskiMaxxing-macOS.zip
+          - os: ubuntu-latest
+            asset: RuskiMaxxing-Linux.tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+      - name: Build app (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name RuskiMaxxing packaging/launcher.py
+          mv dist/RuskiMaxxing.exe "${{ matrix.asset }}"
+      - name: Build app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --noconfirm --windowed --name RuskiMaxxing --osx-bundle-identifier io.github.ruskimaxxing packaging/launcher.py
+          ditto -c -k --keepParent dist/RuskiMaxxing.app "${{ matrix.asset }}"
+      - name: Build app (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name RuskiMaxxing packaging/launcher.py
+          tar -czf "${{ matrix.asset }}" -C dist RuskiMaxxing
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  spreadsheet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: ruskimaxxing excel RuskiMaxxing-Program.xlsx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RuskiMaxxing-Program.xlsx
+          path: RuskiMaxxing-Program.xlsx
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, spreadsheet]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true

@@ -521,7 +521,6 @@ font-weight:bold}}input{{padding:8px;width:100%;max-width:320px}}</style></head>
 
 
 PRIVACY = """
-<p><b>Review and edit this page before launch - it is a starting template, not legal advice.</b></p>
 <p>RuskiMaxxing Cloud ({host}) stores a backup of the training data you choose to sync from the
 RuskiMaxxing apps so you can restore it on another device. The apps are free; cloud backup is a paid
 yearly plan. Payments are handled by Stripe - we never see or store your card number.</p>

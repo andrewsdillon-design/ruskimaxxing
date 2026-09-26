@@ -24,3 +24,4 @@ Thumbs.db
 # Briefcase (phone app) build output
 build/
 logs/
+.briefcase/

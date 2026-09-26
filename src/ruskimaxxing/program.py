@@ -1,70 +1,103 @@
-"""12-week beginner strength and mass program.
+"""One-year beginner strength and mass program.
 
-Structure (Verkhoshansky-style blocks, daily undulating intensity):
+The year is four 12-week cycles plus a 4-week transition:
 
-    Weeks 1-3   Accumulation   build muscle and work capacity (higher reps)
-    Week  4     Deload
-    Weeks 5-7   Transmutation  convert size into strength (moderate reps)
-    Week  8     Deload
-    Weeks 9-11  Realization    heavier, lower-rep strength work
-    Week  12    Test           AMRAP sets to estimate new 1RMs
+    Week 0          Baseline test (optional - skip if you enter known maxes)
+    Weeks 1-48      4 cycles of 12 weeks, maxes tested in weeks 12, 24, 36, 48
+    Weeks 49-52     Transition: lighter hypertrophy work, then a full deload
 
-Three full-body days per week. Each main lift's intensity changes day to day
-(heavy / medium / light), and Prilepin's chart sets the sets x reps for that
-intensity. Accessory work adds the hypertrophy volume beginners need for mass.
+Each 12-week cycle (Verkhoshansky-style blocks, daily undulating intensity):
+
+    1-3   Accumulation    build muscle and work capacity (higher reps)
+    4     Deload
+    5-7   Transmutation   turn new muscle into strength
+    8     Deload
+    9-10  Realization     heavy, lower-rep strength work
+    11    Taper           volume cut ~50%, intensity kept - arrive at the test fresh
+    12    Test            new maxes on every main lift, the block's variations and jumps
+
+Three full-body days per week, each opening with plyometrics (box jump / broad
+jump). Days 1-2 train the competition lifts; Day 3 is a conjugate max-effort day
+whose variations rotate every 3-week block. The supertotal edition adds the
+snatch (Day 1), clean & jerk (Day 2) and a rotating Olympic variation (Day 3).
+
+Every percentage is of that exercise's own training max (the best estimated 1RM
+logged before the cycle started), so each cycle builds on the last test.
+Prilepin's chart sets sets x reps for every loaded session.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import date, timedelta
 
+from ruskimaxxing.edition import is_supertotal
+from ruskimaxxing.exercises import CATALOG, MAIN, OLY, ROTATION
 from ruskimaxxing.prilepin import load, zone_for
 
-MAIN_LIFTS = ("Squat", "Bench Press", "Deadlift", "Overhead Press")
-WEEKS = 12
+WEEKS = 52
+CYCLE_WEEKS = 12
+CYCLES = 4
+TEST_WEEKS = tuple(c * CYCLE_WEEKS for c in range(1, CYCLES + 1))  # 12, 24, 36, 48
+DAY_OFFSETS = (0, 2, 4)  # Mon / Wed / Fri when week 1 starts on a Monday
+MAIN_LIFTS = MAIN
 
 
 @dataclass(frozen=True)
 class Block:
     name: str
-    goal: str
-    weeks: tuple[int, ...]
-    # %1RM for heavy / medium / light days, one value per loading week
-    intensity: dict[str, tuple[float, ...]]
-    rep_bias: str  # "high" or "mid" end of Prilepin's reps-per-set range
+    weeks: tuple[int, ...]  # week numbers inside the cycle
+    intensity: dict[str, tuple[float, ...]]  # %TM per day type, one per loading week
+    rep_bias: str
     accessory_sets: int
+    plyo: tuple[int, int]  # sets, reps
 
 
 BLOCKS = (
-    Block("Accumulation", "Build muscle and work capacity", (1, 2, 3),
-          {"heavy": (70, 72.5, 75), "medium": (65, 67.5, 70), "light": (60, 62.5, 65)},
-          "high", 4),
-    Block("Transmutation", "Turn new muscle into strength", (5, 6, 7),
-          {"heavy": (77.5, 80, 82.5), "medium": (72.5, 75, 77.5), "light": (65, 67.5, 70)},
-          "high", 3),
-    Block("Realization", "Heavier, lower-rep strength work", (9, 10, 11),
-          {"heavy": (85, 87.5, 90), "medium": (77.5, 80, 82.5), "light": (67.5, 70, 72.5)},
-          "mid", 3),
+    Block("Accumulation", (1, 2, 3),
+          {"heavy": (70, 72.5, 75), "medium": (65, 67.5, 70), "light": (60, 62.5, 65)}, "high", 4, (4, 3)),
+    Block("Transmutation", (5, 6, 7),
+          {"heavy": (77.5, 80, 82.5), "medium": (72.5, 75, 77.5), "light": (65, 67.5, 70)}, "high", 3, (4, 3)),
+    Block("Realization", (9, 10),
+          {"heavy": (85, 90), "medium": (77.5, 80), "light": (67.5, 70)}, "mid", 3, (3, 2)),
 )
+DELOAD = {4: 60.0, 8: 65.0}  # cycle week -> %TM
+TAPER_WEEK, TEST_WEEK = 11, 12
 
-DELOAD_WEEKS = {4: 60.0, 8: 65.0}  # week -> %1RM for all main lifts
-TEST_WEEK = 12
-TEST_PERCENT = 85.0
+SLOTS = {"@squat": "Squat", "@bench": "Bench Press", "@deadlift": "Deadlift", "@olympic": "Olympic"}
 
-# (day name, [(main lift, day intensity)], [(accessory, reps)])
-DAYS = (
-    ("Day 1 - Heavy",
-     [("Squat", "heavy"), ("Bench Press", "heavy")],
-     [("Barbell Row", "8-10"), ("Face Pull", "12-15"), ("Dumbbell Curl", "10-12")]),
-    ("Day 2 - Light",
-     [("Squat", "light"), ("Overhead Press", "heavy"), ("Deadlift", "medium")],
-     [("Chin-up or Lat Pulldown", "6-10"), ("Back Extension", "10-15"), ("Plank", "30-60s")]),
-    ("Day 3 - Medium",
-     [("Squat", "medium"), ("Bench Press", "medium")],
-     [("Romanian Deadlift", "8-10"), ("Incline Dumbbell Press", "8-12"),
-      ("One-Arm Dumbbell Row", "10-12"), ("Triceps Pushdown", "10-15")]),
-)
+if is_supertotal():
+    DAYS = (
+        ("Day 1 - Heavy", "Box Jump",
+         [("Snatch", "heavy"), ("Squat", "heavy"), ("Bench Press", "heavy")],
+         [("Barbell Row", "8-10"), ("Face Pull", "12-15")]),
+        ("Day 2 - Light", "Broad Jump",
+         [("Clean & Jerk", "heavy"), ("Squat", "light"), ("Overhead Press", "medium"), ("Deadlift", "medium")],
+         [("Chin-up", "6-10"), ("Plank", "30-60s")]),
+        ("Day 3 - Variations", "Box Jump",
+         [("@olympic", "medium"), ("@squat", "medium"), ("@bench", "medium"), ("@deadlift", "light")],
+         [("Incline Dumbbell Press", "8-12"), ("Triceps Pushdown", "10-15")]),
+    )
+    TESTED = {0: {"Snatch", "Squat", "Bench Press"}, 1: {"Clean & Jerk", "Deadlift", "Overhead Press"}}
+else:
+    DAYS = (
+        ("Day 1 - Heavy", "Box Jump",
+         [("Squat", "heavy"), ("Bench Press", "heavy")],
+         [("Barbell Row", "8-10"), ("Face Pull", "12-15"), ("Dumbbell Curl", "10-12")]),
+        ("Day 2 - Light", "Broad Jump",
+         [("Squat", "light"), ("Overhead Press", "heavy"), ("Deadlift", "medium")],
+         [("Chin-up", "6-10"), ("Back Extension", "10-15"), ("Plank", "30-60s")]),
+        ("Day 3 - Variations", "Box Jump",
+         [("@squat", "medium"), ("@bench", "medium"), ("@deadlift", "light")],
+         [("Incline Dumbbell Press", "8-12"), ("One-Arm Dumbbell Row", "10-12"), ("Triceps Pushdown", "10-15")]),
+    )
+    TESTED = {0: {"Squat", "Bench Press"}, 1: {"Deadlift", "Overhead Press"}}
 
 ACCESSORY_NOTE = "Leave 1-2 reps in the tank; add weight when you hit the top of the range"
+TEST_NOTE = "Work up in small jumps to a new max (1RM, or a 3RM/5RM if you prefer). Log it - it sets next cycle's weights"
+PLYO_NOTES = {
+    "Box Jump": "Explode up, land softly, STEP down. Full reset between reps. Log your box height; check the standards",
+    "Broad Jump": "Two-foot jump for distance, stick the landing. Full reset between reps. Log your best distance",
+}
 
 
 @dataclass(frozen=True)
@@ -72,98 +105,190 @@ class Prescription:
     exercise: str
     sets: int
     reps: str
-    percent: float | None = None  # %1RM for main lifts, None for accessories
+    percent: float | None = None  # % of this exercise's training max
     note: str = ""
+    kind: str = "main"  # "main", "variation", "accessory", "plyo" or "test"
 
     @property
-    def is_main(self) -> bool:
+    def is_loaded(self) -> bool:
         return self.percent is not None
 
-    def weight(self, maxes: dict[str, float], increment: float) -> float | None:
-        one_rm = maxes.get(self.exercise)
-        if self.percent is None or not one_rm:
+    @property
+    def is_main(self) -> bool:  # kept for older callers
+        return self.is_loaded
+
+    def weight(self, training_max: float | None, increment: float) -> float | None:
+        if self.percent is None or not training_max:
             return None
-        return load(one_rm, self.percent, increment)
+        return load(training_max, self.percent, increment)
 
 
 @dataclass(frozen=True)
 class Session:
     week: int
+    cycle: int  # 0 = baseline, 1-4 = cycles, 5 = transition
     phase: str
+    day_index: int
     day: str
-    exercises: list[Prescription] = field(default_factory=list)
+    exercises: tuple[Prescription, ...]
+
+    def date(self, start: date) -> date:
+        return start + timedelta(weeks=self.week - 1, days=DAY_OFFSETS[self.day_index])
 
 
-def estimate_1rm(weight: float, reps: int) -> float:
-    """Epley estimate of a one-rep max from a set of `reps` at `weight`."""
-    if weight < 0 or reps < 1:
-        raise ValueError("weight must be >= 0 and reps >= 1")
-    if reps == 1:
-        return float(weight)
-    return weight * (1 + reps / 30)
+def cycle_of(week: int) -> int:
+    if week == 0:
+        return 0
+    return min(CYCLES + 1, (week - 1) // CYCLE_WEEKS + 1)
+
+
+def cycle_start(start: date, cycle: int) -> date:
+    """First day of a cycle; its training maxes use sets logged before this date."""
+    return start + timedelta(weeks=max(0, cycle - 1) * CYCLE_WEEKS)
+
+
+def variation(lift: str, cycle: int, block: int) -> str:
+    """Variation used for `lift` in block 0-2 of `cycle` (cycle 5 = transition)."""
+    options = ROTATION[lift]
+    return options[((max(cycle, 1) - 1) * 3 + block) % len(options)]
+
+
+def is_olympic(exercise: str) -> bool:
+    info = CATALOG.get(exercise)
+    return exercise in OLY or bool(info and info.parent in OLY)
+
+
+def _resolve(slot: str, cycle: int, block: int) -> tuple[str, str]:
+    if slot in SLOTS:
+        return variation(SLOTS[slot], cycle, block), "variation"
+    return slot, "main"
 
 
 def _sets_reps(percent: float, bias: str, lift: str, day: str) -> tuple[int, int]:
     zone = zone_for(percent)
     lo, hi = zone.reps_per_set
+    if is_olympic(lift):
+        # Olympic lifts: low reps per set, low end of Prilepin's total range
+        return max(3, math.ceil(zone.total_range[0] / lo)), lo
     reps = hi if bias == "high" else (lo + hi + 1) // 2
-    # Light days and deadlifts use the low end of Prilepin's total-rep range
-    total = zone.total_range[0] if day == "light" or lift == "Deadlift" else zone.optimal_total
+    # Light days and deadlift patterns use the low end of Prilepin's total-rep range
+    pulls = "Deadlift" in lift or "Pull" in lift
+    total = zone.total_range[0] if day == "light" or pulls else zone.optimal_total
     return max(3, math.ceil(total / reps)), reps
 
 
-def _loading_session(block: Block, week: int, day: tuple) -> Session:
-    name, lifts, accessories = day
-    idx = block.weeks.index(week)
-    exercises = []
-    for lift, intensity in lifts:
-        pct = block.intensity[intensity][idx]
-        sets, reps = _sets_reps(pct, block.rep_bias, lift, intensity)
-        exercises.append(Prescription(lift, sets, str(reps), pct))
-    exercises += [Prescription(a, block.accessory_sets, r, note=ACCESSORY_NOTE) for a, r in accessories]
-    return Session(week, block.name, name, exercises)
+def _accessories(accessories, sets, note=ACCESSORY_NOTE):
+    return [Prescription(a, sets, r, note=note, kind="accessory") for a, r in accessories]
 
 
-def _deload_session(week: int, day: tuple) -> Session:
-    name, lifts, accessories = day
-    pct = DELOAD_WEEKS[week]
-    exercises = [Prescription(lift, 2, "5", pct, "Easy week - move fast, recover") for lift, _ in lifts]
-    exercises += [Prescription(a, 2, r, note="Easy - stop well short of failure") for a, r in accessories]
-    return Session(week, "Deload", name, exercises)
+def _plyo(name, sets, reps, note=None):
+    return Prescription(name, sets, str(reps), note=note or PLYO_NOTES[name], kind="plyo")
 
 
-def _test_session(day_index: int, day: tuple) -> Session:
-    name, lifts, accessories = day
-    tested = {0: ("Squat", "Bench Press"), 1: ("Deadlift", "Overhead Press")}.get(day_index, ())
-    exercises = []
-    for lift, _ in lifts:
-        if lift in tested:
-            exercises.append(Prescription(
-                lift, 1, "AMRAP", TEST_PERCENT,
-                "Warm up, then as many clean reps as possible; stop before form breaks"))
-        else:
-            exercises.append(Prescription(lift, 2, "5", 60.0, "Light technique work"))
-    exercises += [Prescription(a, 2, r, note="Light") for a, r in accessories]
-    if day_index == 2:
-        exercises.append(Prescription(
-            "Next cycle", 0, "-", note="Enter your new estimated 1RMs and start again at week 1"))
-    return Session(TEST_WEEK, "Test", name, exercises)
-
-
-def build_program() -> list[Session]:
-    """All sessions for the 12-week program, in order."""
+def _session(week: int) -> list[Session]:
+    cycle = cycle_of(week)
     sessions = []
-    for week in range(1, WEEKS + 1):
-        block = next((b for b in BLOCKS if week in b.weeks), None)
-        for i, day in enumerate(DAYS):
-            if block:
-                sessions.append(_loading_session(block, week, day))
-            elif week in DELOAD_WEEKS:
-                sessions.append(_deload_session(week, day))
+    for i, (name, plyo, lifts, accessories) in enumerate(DAYS):
+        if week == 0:
+            phase = "Baseline"
+            exercises = [_plyo(plyo, 1, "Max", "Find your best: work up box by box (or jump for distance). "
+                                                "Log it - see the standards on Start Here")]
+            for s, _ in lifts:
+                ex, _ = _resolve(s, 1, 0)
+                if ex == "Squat" and i == 1:
+                    continue
+                reps = "1RM" if is_olympic(ex) else "5RM"
+                note = ("Work up to a technically clean heavy single" if is_olympic(ex) else
+                        "Work up to a hard set of 5 (or a 1RM if you're experienced)")
+                exercises.append(Prescription(ex, 1, reps, None, "Optional - skip if you entered maxes. " + note, "test"))
+            exercises += _accessories(accessories, 2, "Find a weight you can do for the top of the range")
+        elif cycle == CYCLES + 1:
+            week_in = week - CYCLES * CYCLE_WEEKS  # 1-4
+            resolved = [_resolve(s, cycle, 0) for s, _ in lifts]
+            if week_in < 4:
+                phase = "Transition"
+                pct = (60, 62.5, 65)[week_in - 1]
+                exercises = [_plyo(plyo, 3, 3)]
+                exercises += [Prescription(ex, 3, "3" if is_olympic(ex) else "8", pct,
+                                           "Easy volume - stay 3+ reps from failure", kind) for ex, kind in resolved]
+                exercises += _accessories(accessories, 4)
             else:
-                sessions.append(_test_session(i, day))
+                phase = "Deload"
+                exercises = [_plyo(plyo, 2, 3)]
+                exercises += [Prescription(ex, 2, "2" if is_olympic(ex) else "5", 55.0,
+                                           "Full recovery week before the next year", kind) for ex, kind in resolved]
+                exercises += _accessories(accessories, 2, "Easy")
+        else:
+            w = (week - 1) % CYCLE_WEEKS + 1
+            block_idx = 0 if w <= 4 else 1 if w <= 8 else 2
+            block = next((b for b in BLOCKS if w in b.weeks), None)
+            resolved = [(*_resolve(s, cycle, block_idx), intensity) for s, intensity in lifts]
+            if block:
+                phase = block.name
+                idx = block.weeks.index(w)
+                exercises = [_plyo(plyo, *block.plyo)]
+                for ex, kind, intensity in resolved:
+                    pct = block.intensity[intensity][idx]
+                    sets, reps = _sets_reps(pct, block.rep_bias, ex, intensity)
+                    exercises.append(Prescription(ex, sets, str(reps), pct, kind=kind))
+                exercises += _accessories(accessories, block.accessory_sets)
+            elif w in DELOAD:
+                phase = "Deload"
+                exercises = [_plyo(plyo, 2, 3)]
+                exercises += [Prescription(ex, 2, "2" if is_olympic(ex) else "5", DELOAD[w],
+                                           "Easy week - move fast, recover", kind) for ex, kind, _ in resolved]
+                exercises += _accessories(accessories, 2, "Easy - stop well short of failure")
+            elif w == TAPER_WEEK:
+                phase = "Taper"
+                exercises = [_plyo(plyo, 2, 2)]
+                for ex, kind, intensity in resolved:
+                    if kind == "variation":
+                        exercises.append(Prescription(ex, 2, "2" if is_olympic(ex) else "3", 75.0, "Crisp and fast", kind))
+                    elif intensity == "light":
+                        exercises.append(Prescription(ex, 2, "3", 65.0, "Easy", kind))
+                    else:
+                        exercises.append(Prescription(ex, 3 if i == 0 else 2, "1" if is_olympic(ex) else "2", 80.0,
+                                                      "Keep it heavy but short - no grinding", kind))
+                exercises += _accessories(accessories, 2, "Light - save energy for test week")
+            else:
+                phase = "Test"
+                tested = TESTED.get(i, set())
+                exercises = [_plyo(plyo, 1, "Max", "Test day: work up to your highest box / longest jump and log it")
+                             if i > 0 else _plyo(plyo, 2, 2)]
+                for ex, kind, _ in resolved:
+                    if kind == "variation":
+                        reps = "1RM" if is_olympic(ex) else "3RM"
+                        exercises.append(Prescription(ex, 1, reps, None,
+                                                      f"Work up to a {reps} - tracked as its own PR", "test"))
+                    elif ex in tested:
+                        exercises.append(Prescription(ex, 1, "Max", None, TEST_NOTE, "test"))
+                    else:
+                        exercises.append(Prescription(ex, 2, "3", 60.0, "Light technique work", kind))
+                exercises += _accessories(accessories, 2, "Light")
+        sessions.append(Session(week, cycle, phase, i, name, tuple(exercises)))
     return sessions
 
 
-def phase_for_week(week: int) -> str:
-    return next(s.phase for s in build_program() if s.week == week)
+def build_program() -> list[Session]:
+    """Every session of the year, week 0 (baseline) through week 52."""
+    return [s for week in range(0, WEEKS + 1) for s in _session(week)]
+
+
+def week_label(week: int) -> str:
+    phase = _session(week)[0].phase
+    if week == 0:
+        return "Week 0 - Baseline test (optional)"
+    cycle = cycle_of(week)
+    if cycle > CYCLES:
+        return f"Week {week} - Transition" + (" - Deload" if phase == "Deload" else "")
+    return f"Week {week} - Cycle {cycle} - {phase}"
+
+
+def bodyfat_week(month: int) -> int:
+    """Program week in which the monthly body-fat test (month 1-12) falls."""
+    return 1 + round((month - 1) * 52 / 12)
+
+
+def next_monday(today: date | None = None) -> date:
+    today = today or date.today()
+    return today + timedelta(days=(7 - today.weekday()) % 7 or 7)

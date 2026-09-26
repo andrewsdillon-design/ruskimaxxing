@@ -1,10 +1,10 @@
 name: Build apps
 
-# Every push to main builds the Windows, macOS and Linux apps plus the Excel
-# spreadsheet (download them from the run's "Artifacts" section).
-# Pushing a version tag (e.g. v1.0.0) also publishes them as a GitHub Release.
-# Or run this workflow by hand (Actions tab -> Build apps -> Run workflow) and
-# enter a version; it creates the tag and the Release for you.
+# Every push to main tests on Windows, macOS and Linux, then builds the three
+# desktop apps plus the Excel spreadsheet (download them from the run's
+# "Artifacts" section).
+# To publish a GitHub Release: Actions tab -> Build apps -> Run workflow, and
+# enter a version (e.g. v2.0.0). Pushing a v* tag does the same.
 
 on:
   push:
@@ -14,12 +14,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version to publish, e.g. v1.0.0 (leave blank to just build)"
+        description: "Release version to publish, e.g. v2.0.0 (leave blank to just build)"
         required: false
         default: ""
 
 permissions:
   contents: write
+
+env:
+  APP: RuskiMaxxing  # file-name prefix for the built apps and spreadsheet
 
 jobs:
   build:
@@ -28,11 +31,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            asset: RuskiMaxxing-Windows.exe
+            suffix: Windows.exe
           - os: macos-latest
-            asset: RuskiMaxxing-macOS.zip
+            suffix: macOS.zip
           - os: ubuntu-latest
-            asset: RuskiMaxxing-Linux.tar.gz
+            suffix: Linux.tar.gz
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -43,28 +46,30 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - name: Test
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a pytest -q; else pytest -q; fi
 
       - name: Build app (Windows)
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name RuskiMaxxing packaging/launcher.py
-          mv dist/RuskiMaxxing.exe "${{ matrix.asset }}"
+          pyinstaller --noconfirm --onefile --windowed --name "$APP" packaging/launcher.py
+          mv "dist/$APP.exe" "$APP-${{ matrix.suffix }}"
       - name: Build app (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconfirm --windowed --name RuskiMaxxing --osx-bundle-identifier io.github.ruskimaxxing packaging/launcher.py
-          ditto -c -k --keepParent dist/RuskiMaxxing.app "${{ matrix.asset }}"
+          pyinstaller --noconfirm --windowed --name "$APP" --osx-bundle-identifier "io.github.$APP" packaging/launcher.py
+          ditto -c -k --keepParent "dist/$APP.app" "$APP-${{ matrix.suffix }}"
       - name: Build app (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name RuskiMaxxing packaging/launcher.py
-          tar -czf "${{ matrix.asset }}" -C dist RuskiMaxxing
+          pyinstaller --noconfirm --onefile --windowed --name "$APP" packaging/launcher.py
+          tar -czf "$APP-${{ matrix.suffix }}" -C dist "$APP"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          name: ${{ env.APP }}-${{ matrix.suffix }}
+          path: ${{ env.APP }}-${{ matrix.suffix }}
 
   spreadsheet:
     runs-on: ubuntu-latest
@@ -74,11 +79,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install .
-      - run: ruskimaxxing excel RuskiMaxxing-Program.xlsx
+      - run: ruskimaxxing excel "$APP.xlsx"
       - uses: actions/upload-artifact@v4
         with:
-          name: RuskiMaxxing-Program.xlsx
-          path: RuskiMaxxing-Program.xlsx
+          name: ${{ env.APP }}.xlsx
+          path: ${{ env.APP }}.xlsx
 
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')

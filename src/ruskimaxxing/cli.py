@@ -2,16 +2,23 @@
 
     ruskimaxxing                       open the desktop app
     ruskimaxxing excel FILE.xlsx       write the standalone spreadsheet
-    ruskimaxxing plan --squat 225 5 --bench 155 5 [--week 3]
+    ruskimaxxing plan --squat 225 5 --bench 155 5 [--week 3] [--start 2026-01-05]
     ruskimaxxing prilepin 200 85       one Prilepin prescription
+
+Set RUSKIMAXXING_EDITION=supertotal to get the snatch / clean & jerk program.
 """
 
 import argparse
+from datetime import date
 
+from ruskimaxxing.edition import app_name, is_supertotal
 from ruskimaxxing.prilepin import load, zone_for
-from ruskimaxxing.program import MAIN_LIFTS, build_program, estimate_1rm
+from ruskimaxxing.program import WEEKS, build_program, cycle_start, next_monday, week_label
+from ruskimaxxing.tracking import LogEntry, training_max
 
 LIFT_FLAGS = {"squat": "Squat", "bench": "Bench Press", "deadlift": "Deadlift", "press": "Overhead Press"}
+if is_supertotal():
+    LIFT_FLAGS |= {"snatch": "Snatch", "clean_jerk": "Clean & Jerk"}
 
 
 def _prilepin(args):
@@ -24,20 +31,23 @@ def _prilepin(args):
 
 
 def _plan(args):
-    maxes = {LIFT_FLAGS[f]: estimate_1rm(w, int(r)) for f in LIFT_FLAGS
-             if (v := getattr(args, f)) for w, r in [v]}
-    for lift in MAIN_LIFTS:
-        if lift in maxes:
-            print(f"{lift:15} est. 1RM {maxes[lift]:.0f}")
+    start = date.fromisoformat(args.start) if args.start else next_monday()
+    entries = [LogEntry(start, lift, w, int(r), "baseline")
+               for flag, lift in LIFT_FLAGS.items() if (v := getattr(args, flag)) for w, r in [v]]
     for s in build_program():
-        if args.week and s.week != args.week:
+        if args.week is not None and s.week != args.week:
             continue
-        print(f"\nWeek {s.week} ({s.phase}) - {s.day}")
+        if s.day_index == 0:
+            print(f"\n=== {week_label(s.week)} ===")
+        print(f"\n{s.day} ({s.date(start):%a %b %d})")
+        cs = cycle_start(start, s.cycle)
         for p in s.exercises:
-            w = p.weight(maxes, args.increment)
-            weight = f" @ {w:g}" if w else (f" @ {p.percent:g}%" if p.percent else "")
+            tm, estimated = training_max(entries, p.exercise, cs)
+            w = p.weight(tm, args.increment)
+            weight = f" @ {w:g}" + ("*" if estimated else "") if w else (f" @ {p.percent:g}%" if p.percent else "")
             sets = f"{p.sets} x {p.reps}" if p.sets else ""
             print(f"  {p.exercise:26} {sets:10}{weight}")
+    print("\n* estimated from the main lift until you log that variation")
 
 
 def _excel(args):
@@ -51,19 +61,20 @@ def _gui(_args):
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="ruskimaxxing", description="12-week beginner strength & mass program.")
+    parser = argparse.ArgumentParser(prog="ruskimaxxing", description=f"{app_name()}: 1-year strength, mass & power program.")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("gui", help="open the desktop app (default)").set_defaults(func=_gui)
 
     p = sub.add_parser("excel", help="write the standalone Excel spreadsheet")
-    p.add_argument("path", nargs="?", default="RuskiMaxxing-Program.xlsx")
+    p.add_argument("path", nargs="?", default=f"{app_name().replace(' ', '-')}.xlsx")
     p.set_defaults(func=_excel)
 
     p = sub.add_parser("plan", help="print the program with your weights")
     for flag in LIFT_FLAGS:
-        p.add_argument(f"--{flag}", nargs=2, type=float, metavar=("WEIGHT", "REPS"))
-    p.add_argument("--week", type=int, choices=range(1, 13), metavar="1-12")
+        p.add_argument(f"--{flag.replace('_', '-')}", dest=flag, nargs=2, type=float, metavar=("WEIGHT", "REPS"))
+    p.add_argument("--week", type=int, choices=range(0, WEEKS + 1), metavar=f"0-{WEEKS}")
+    p.add_argument("--start", help="Monday of week 1 (YYYY-MM-DD); default next Monday")
     p.add_argument("--increment", type=float, default=5, help="plate rounding (default 5)")
     p.set_defaults(func=_plan)
 

@@ -3,6 +3,8 @@ name: Build apps
 # Every push to main builds the Windows, macOS and Linux apps plus the Excel
 # spreadsheet (download them from the run's "Artifacts" section).
 # Pushing a version tag (e.g. v1.0.0) also publishes them as a GitHub Release.
+# Or run this workflow by hand (Actions tab -> Build apps -> Run workflow) and
+# enter a version; it creates the tag and the Release for you.
 
 on:
   push:
@@ -10,6 +12,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish, e.g. v1.0.0 (leave blank to just build)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -74,7 +81,7 @@ jobs:
           path: RuskiMaxxing-Program.xlsx
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
     needs: [build, spreadsheet]
     runs-on: ubuntu-latest
     steps:
@@ -84,5 +91,7 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: assets/*
           generate_release_notes: true

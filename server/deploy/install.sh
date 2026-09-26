@@ -40,7 +40,7 @@ apt-get install -y -q python3 python3-venv postgresql nginx certbot python3-cert
 echo "==> System user and code"
 id ruskimaxxing >/dev/null 2>&1 || useradd --system --home "$BASE" --shell /usr/sbin/nologin ruskimaxxing
 mkdir -p "$BASE"
-if [ -d "$BASE/app/.git" ]; then git -C "$BASE/app" pull -q; else git clone -q --depth 1 "$REPO" "$BASE/app"; fi
+if [ -d "$BASE/app/.git" ]; then git -c safe.directory="$BASE/app" -C "$BASE/app" pull -q; else git clone -q --depth 1 "$REPO" "$BASE/app"; fi
 python3 -m venv "$BASE/venv"
 "$BASE/venv/bin/pip" install -q --upgrade pip
 "$BASE/venv/bin/pip" install -q -r "$BASE/app/server/requirements.txt"

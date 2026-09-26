@@ -17,6 +17,22 @@ ENV=/etc/ruskimaxxing-cloud.env
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 [ "$(id -u)" = 0 ] || { echo "Run with sudo"; exit 1; }
+
+echo "==> Checking ports (nothing already running is changed)"
+for port in 80 443; do
+  owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2 || true)
+  if [ -n "$owner" ] && [ "$owner" != nginx ]; then
+    echo "Port $port is already used by '$owner' (not nginx). This installer uses nginx on 80/443."
+    echo "If that's Caddy, Apache, Traefik or a Docker container, point it at 127.0.0.1:8100 instead -"
+    echo "see server/README.md 'Running it next to the site you already host'. Nothing was changed."
+    exit 1
+  fi
+done
+if ss -ltnH "sport = :8100" 2>/dev/null | grep -q . && ! systemctl is-active --quiet ruskimaxxing-cloud; then
+  echo "Port 8100 is taken by something else; change it in ruskimaxxing-cloud.service and ruskimaxxing-proxy.conf."
+  exit 1
+fi
+
 echo "==> Packages"
 apt-get update -q
 apt-get install -y -q python3 python3-venv postgresql nginx certbot python3-certbot-nginx git

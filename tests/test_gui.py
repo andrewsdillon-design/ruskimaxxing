@@ -80,3 +80,13 @@ def test_unsaved_edits_are_kept_when_switching_day(app):
     app.refresh()
     first = [e for e in app.store.workout(1, 0) if e.exercise == "Squat"][0]
     assert first.weight == 190 and first.done
+
+
+def test_month_and_week_dropdowns(app):
+    assert app.month_pick.get().startswith("Month 1 - Weeks 1-4")
+    assert len(app.week_combo["values"]) == 4
+    app.month_pick.set(app.month_labels[13])
+    app._pick_month()
+    assert app._week() == 49 and app.week_combo["values"][-1].startswith("Week 52")
+    app._today()
+    assert app.month_pick.get() == app.month_labels[__import__("ruskimaxxing.program").program.month_of(app._week())]

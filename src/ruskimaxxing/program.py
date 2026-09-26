@@ -317,6 +317,15 @@ def month_weeks(month: int) -> list[int]:
     return [0] if month == 0 else list(range((month - 1) * MONTH_WEEKS + 1, month * MONTH_WEEKS + 1))
 
 
+def month_label(month: int) -> str:
+    """'Month 2 - Weeks 5-8 - Cycle 1' for the month pickers."""
+    if month == 0:
+        return "Baseline - Week 0 (optional test)"
+    weeks = month_weeks(month)
+    cycle = cycle_of(weeks[0])
+    return f"Month {month} - Weeks {weeks[0]}-{weeks[-1]} - " + ("Transition" if cycle > CYCLES else f"Cycle {cycle}")
+
+
 def bodyfat_week(month: int) -> int:
     """Program week of the monthly body-fat test: the first week of each training month."""
     return (month - 1) * MONTH_WEEKS + 1

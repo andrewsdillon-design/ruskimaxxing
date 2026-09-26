@@ -16,7 +16,7 @@ import urllib.request
 from ruskimaxxing.edition import EDITION
 from ruskimaxxing.storage import Store, now
 
-DEFAULT_SERVER = ""  # e.g. "https://api.your-domain.com" once your server is live
+DEFAULT_SERVER = "https://api.ruskimaxxing.com"  # RuskiMaxxing Cloud; the Server field lets people change it
 TIMEOUT = 20
 
 

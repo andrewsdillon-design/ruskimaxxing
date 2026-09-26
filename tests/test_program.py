@@ -83,3 +83,11 @@ def test_bodyfat_monthly():
     weeks = [bodyfat_week(m) for m in range(1, 13)]
     assert weeks[0] == 1 and weeks == sorted(weeks) and weeks[-1] <= 52
     assert all(3 <= b - a <= 5 for a, b in zip(weeks, weeks[1:]))
+
+
+def test_month_labels():
+    from ruskimaxxing.program import month_label
+    assert month_label(0).startswith("Baseline")
+    assert month_label(1) == "Month 1 - Weeks 1-4 - Cycle 1"
+    assert month_label(4) == "Month 4 - Weeks 13-16 - Cycle 2"
+    assert month_label(13) == "Month 13 - Weeks 49-52 - Transition"

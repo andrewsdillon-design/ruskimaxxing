@@ -21,7 +21,7 @@ from ruskimaxxing.exercises import (CATALOG, JUMP_STANDARDS, LEVELS, MAIN, box_j
                                    jump_level, jump_targets)
 from ruskimaxxing.prilepin import ZONES
 from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
-                                  next_monday, week_label)
+                                  month_label, month_of, month_weeks, next_monday, week_label)
 from ruskimaxxing.storage import Store
 from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
@@ -437,12 +437,20 @@ class App(ttk.Frame):
     def _program_tab(self, tab):
         bar = ttk.Frame(tab)
         bar.pack(fill="x")
-        ttk.Button(bar, text="<", width=3, command=lambda: self._step(-1)).pack(side="left")
-        combo = ttk.Combobox(bar, textvariable=self.week, values=self.week_labels, state="readonly", width=38)
-        combo.pack(side="left", padx=4)
-        combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        ttk.Button(bar, text=">", width=3, command=lambda: self._step(1)).pack(side="left")
+        self.month_labels = [month_label(m) for m in range(0, MONTHS + 1)]
+        self.month_pick = tk.StringVar()
+        ttk.Label(bar, text="Month").pack(side="left")
+        month_combo = ttk.Combobox(bar, textvariable=self.month_pick, values=self.month_labels, state="readonly",
+                                   width=32)
+        month_combo.pack(side="left", padx=(4, 10))
+        month_combo.bind("<<ComboboxSelected>>", lambda e: self._pick_month())
+        ttk.Label(bar, text="Week").pack(side="left")
+        self.week_combo = ttk.Combobox(bar, textvariable=self.week, state="readonly", width=36)
+        self.week_combo.pack(side="left", padx=4)
+        self.week_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
         ttk.Button(bar, text="This week", command=self._today).pack(side="left", padx=6)
+        self.week.trace_add("write", lambda *a: self._sync_pickers())
+        self._sync_pickers()
         self.bw_week = tk.StringVar()
         ttk.Button(bar, text="Save", command=self._save_week_bw).pack(side="right")
         ttk.Entry(bar, textvariable=self.bw_week, width=8).pack(side="right", padx=4)
@@ -496,9 +504,19 @@ class App(ttk.Frame):
         self.wo_canvas.bind_all("<Button-4>", lambda e: self.wo_canvas.yview_scroll(-1, "units"))
         self.wo_canvas.bind_all("<Button-5>", lambda e: self.wo_canvas.yview_scroll(1, "units"))
 
-    def _step(self, delta):
-        self.week.set(self.week_labels[min(WEEKS, max(0, self._week() + delta))])
-        self.refresh()
+    def _sync_pickers(self):
+        """Month dropdown follows the chosen week; the week dropdown lists only that month's weeks."""
+        if not hasattr(self, "week_combo"):
+            return
+        month = month_of(self._week())
+        self.month_pick.set(self.month_labels[month])
+        self.week_combo["values"] = [self.week_labels[w] for w in month_weeks(month)]
+
+    def _pick_month(self):
+        month = self.month_labels.index(self.month_pick.get())
+        if month_of(self._week()) != month:
+            self.week.set(self.week_labels[month_weeks(month)[0]])
+            self.refresh()
 
     def _today(self):
         self._save_settings()

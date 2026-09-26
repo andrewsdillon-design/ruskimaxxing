@@ -66,5 +66,27 @@ def test_add_set_and_all_done(app):
 
 def test_every_tab_refreshes(app):
     app.refresh_all()
-    assert "Wk 1" in app.week_label.text
+    assert app.week_label.text.startswith("Month 1 of 13")
     assert app.day_select.value.startswith("Day 1")
+
+
+def test_month_and_week_dropdowns(app):
+    app.render_workout()
+    assert app.month_select.value.startswith("Month 1 - Weeks 1-4")
+    assert [r.value.split(" - ")[0] for r in app.week_select.items] == ["Wk 1", "Wk 2", "Wk 3", "Wk 4"]
+    app.month_select.value = app.month_items[4]          # Month 4 -> jumps to its first week (13)
+    app._month_changed(app.month_select)                 # (toga_dummy doesn't fire on_change itself)
+    assert app.week == 13 and app.week_label.text == "Month 4 of 13  -  Week 13 of 52"
+    app.week_select.value = app.week_items[2]     # third week of month 4
+    app._week_changed(app.week_select)
+    assert app.week == 15 and app.week_select.value.startswith("Wk 15")
+    app.month_select.value = app.month_items[0]          # baseline
+    app._month_changed(app.month_select)
+    assert app.week == 0 and app.week_label.text.startswith("Baseline")
+
+
+def test_day_dropdown(app):
+    app.render_workout()
+    app.day_select.value = app.day_items[2]
+    app._day_changed(app.day_select)
+    assert app.day == 2 and app.day_select.value.startswith("Day 3")

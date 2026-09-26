@@ -24,7 +24,8 @@ from ruskimaxxing import workout as wo
 from ruskimaxxing.edition import app_name, is_supertotal
 from ruskimaxxing.exercises import CATALOG, JUMP_STANDARDS, MAIN, jump_level, jump_targets
 from ruskimaxxing.prilepin import ZONES
-from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
+from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program, month_label, month_of,
+                                  month_weeks,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
 from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
@@ -220,15 +221,20 @@ class RuskiMaxxing(toga.App):
     # ----- Workout ----------------------------------------------------------------
     def _workout_tab(self):
         self.week_label = label("", 12, True, PURPLE, flex=1, text_align="center")
+        self.month_items = [month_label(m) for m in range(0, MONTHS + 1)]
+        self.month_select = toga.Selection(items=self.month_items,
+                                           on_change=self._month_changed, style=Pack(flex=1))
+        self.week_select = toga.Selection(on_change=self._week_changed, style=Pack(flex=1))
         self.day_select = toga.Selection(on_change=self._day_changed, style=Pack(flex=1))
         self.bf_due = label("", 11, True, CRIMSON)
         self.status = label("", 10, color="#666666")
         self.bw_input = number_input(step="0.1", width=90)
         self.wo_scroll = toga.ScrollContainer(horizontal=False, content=toga.Box(), style=Pack(flex=1))
         return col(
-            row(button("<", lambda w: self._step(-1), width=44), self.week_label,
-                button(">", lambda w: self._step(1), width=44), gap=6),
-            row(self.day_select, margin_top=6),
+            row(self.week_label, button("This week", self._this_week, width=100), gap=6),
+            row(label("Month", 11, True, width=56), self.month_select, gap=6, margin_top=6),
+            row(label("Week", 11, True, width=56), self.week_select, gap=6, margin_top=4),
+            row(label("Day", 11, True, width=56), self.day_select, gap=6, margin_top=4),
             row(label("Bodyweight this week", 11), self.bw_input, button("Save", self._save_bw), gap=6,
                 margin_top=6),
             self.bf_due,
@@ -237,16 +243,33 @@ class RuskiMaxxing(toga.App):
             self.status,
             self.wo_scroll, margin=8, gap=2, flex=1)
 
-    def _step(self, delta):
+    def _go(self, week):
         self.autosave()
-        self.week = min(WEEKS, max(0, self.week + delta))
+        self.week = min(WEEKS, max(0, week))
         self.render_workout()
+
+    def _this_week(self, widget=None):
+        self._go(self._current_week())
+
+    def _month_changed(self, widget, **kw):
+        if getattr(self, "_filling_days", False) or widget.value is None:
+            return
+        month = self.month_items.index(widget.value)
+        if month_of(self.week) != month:
+            self._go(month_weeks(month)[0])
+
+    def _week_changed(self, widget, **kw):
+        if getattr(self, "_filling_days", False) or widget.value is None:
+            return
+        week = month_weeks(month_of(self.week))[self.week_items.index(widget.value)]
+        if week != self.week:
+            self._go(week)
 
     def _day_changed(self, widget, **kw):
         if getattr(self, "_filling_days", False) or widget.value is None:
             return
         self.autosave()
-        self.day = self.day_select.items.index(widget.value)
+        self.day = self.day_items.index(widget.value)
         self.render_workout(fill_days=False)
 
     def _mark_dirty(self, *args, **kw):
@@ -256,19 +279,27 @@ class RuskiMaxxing(toga.App):
 
     def render_workout(self, blocks=None, fill_days=True):
         cfg = self.cfg()
-        self.week_label.text = short_week(self.week)
+        month = month_of(self.week)
+        self.week_label.text = ("Baseline test - Week 0" if self.week == 0 else
+                                f"Month {month} of {MONTHS}  -  Week {self.week} of {WEEKS}")
         bw = {b.week: b.weight for b in self.store.bodyweights()}
         self.bw_input.value = Decimal(str(bw[self.week])) if self.week in bw else None
-        month = next((m for m in range(1, MONTHS + 1) if bodyfat_week(m) == self.week), None)
-        self.bf_due.text = f"Body fat test due (month {month}) - Body tab" if month else ""
+        bf_month = next((m for m in range(1, MONTHS + 1) if bodyfat_week(m) == self.week), None)
+        self.bf_due.text = f"Body fat test due (month {bf_month}) - Body tab" if bf_month else ""
         if fill_days:
             self._filling_days = True
+            self.month_select.value = self.month_items[month]
+            weeks = month_weeks(month)
+            self.week_items = [f"{short_week(w)} - {wo.session(w, 0).date(cfg.start):%b %d}" for w in weeks]
+            self.week_select.items = self.week_items
+            self.week_select.value = self.week_items[weeks.index(self.week)]
             items = []
             for i in range(3):
                 s = wo.session(self.week, i)
                 done, planned = wo.day_progress(self.store, self.week, i)
                 items.append(f"{s.day} - {s.date(cfg.start):%a %b %d} - {done}/{planned}"
                              + (" ✓" if done >= planned else ""))
+            self.day_items = items
             self.day_select.items = items
             self.day_select.value = items[self.day]
             self._filling_days = False
@@ -511,7 +542,7 @@ class RuskiMaxxing(toga.App):
             prilepin.add(label(f"{text}:  {z.reps_per_set[0]}-{z.reps_per_set[1]} reps/set,  "
                                f"{z.optimal_total} optimal ({z.total_range[0]}-{z.total_range[1]})", 11))
         self.cloud_url = toga.TextInput(value=s.get("cloud_url", "") or DEFAULT_SERVER,
-                                        placeholder="Server, e.g. https://api.your-domain.com")
+                                        placeholder="Server (https://api.ruskimaxxing.com)")
         self.cloud_email = toga.TextInput(value=s.get("cloud_email", ""), placeholder="Email")
         self.cloud_pw = toga.PasswordInput(placeholder="Password (8+ characters)")
         self.cloud_status = label(Cloud(s).status(), 10, color="#6b5a45")

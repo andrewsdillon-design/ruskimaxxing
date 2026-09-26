@@ -379,7 +379,8 @@ class App(ttk.Frame):
                 msg = done_message(result) if callable(done_message) else (done_message or "")
                 err = None
             except CloudError as e:
-                msg, err = "", str(e)
+                # 402 = signed in fine, but backups aren't active for the account: informational, not an error
+                msg, err = (str(e), None) if e.code == 402 else ("", str(e))
             self.root.after(0, lambda: self._cloud_done(msg, err))
         threading.Thread(target=worker, daemon=True).start()
 

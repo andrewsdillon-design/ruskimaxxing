@@ -21,7 +21,9 @@ TIMEOUT = 20
 
 
 class CloudError(Exception):
-    pass
+    def __init__(self, message: str, code: int = 0):
+        super().__init__(message)
+        self.code = code
 
 
 def http_transport(method: str, url: str, body: dict | None, token: str | None) -> tuple[int, dict]:
@@ -62,6 +64,8 @@ class Cloud:
     def status(self) -> str:
         if not self.logged_in:
             return "Not signed in - your data is only on this device"
+        if self.store.get("cloud_backup_active", "1") == "0":
+            return f"Signed in as {self.email} - backups aren't active for this account (restore still works)"
         last = self.store.get("cloud_last_sync", "")
         return f"Signed in as {self.email}" + (f" - last backup {last[:16].replace('T', ' ')} UTC" if last else "")
 
@@ -74,7 +78,10 @@ class Cloud:
         if code == 401 and auth:
             self.store.set("cloud_token", "")
         if code >= 400:
-            raise CloudError(data.get("detail") if isinstance(data.get("detail"), str) else f"Server error ({code})")
+            raise CloudError(data.get("detail") if isinstance(data.get("detail"), str) else f"Server error ({code})",
+                             code)
+        if isinstance(data.get("plan"), dict):
+            self.store.set("cloud_backup_active", "1" if data["plan"].get("active") else "0")
         return data
 
     def _signed_in(self, url: str, data: dict) -> None:
@@ -115,14 +122,23 @@ class Cloud:
         started = now()
         changes = self.store.changes(self.store.get("cloud_pushed", "") or None)
         since = int(self.store.get("cloud_seq", "0") or 0)
-        sent = 0
-        # send in chunks (the server takes up to 5000 changes per request)
-        for i in range(0, max(len(changes), 1), 2000):
-            chunk = changes[i:i + 2000]
-            data = self._call("POST", "/api/sync", {"edition": EDITION, "since": since, "changes": chunk})
-            sent += len(chunk)
+        sent, inactive = 0, None
+        try:
+            # send in chunks (the server takes up to 5000 changes per request)
+            for i in range(0, max(len(changes), 1), 2000):
+                chunk = changes[i:i + 2000]
+                data = self._call("POST", "/api/sync", {"edition": EDITION, "since": since, "changes": chunk})
+                sent += len(chunk)
+        except CloudError as e:
+            if e.code != 402:
+                raise
+            # backups aren't active for this account: still restore what's saved, keep local edits queued
+            inactive = e
+            data = self._call("POST", "/api/sync", {"edition": EDITION, "since": since, "changes": []})
         received = self.store.apply(data["changes"])
         self.store.set("cloud_seq", str(data["seq"]))
+        if inactive:
+            raise CloudError(f"{inactive} Received {received} updates.", 402)
         self.store.set("cloud_pushed", started)
         self.store.set("cloud_last_sync", started)
         return sent, received

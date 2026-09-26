@@ -51,6 +51,34 @@ Rules that keep both sites safe:
    `https://api.your-domain.com`. To pre-fill it for everyone, set `DEFAULT_SERVER` in
    `src/ruskimaxxing/sync.py` and publish a new release.
 
+### Paid storage: $20/year with Stripe (no free trial)
+Accounts are **free**. **Backing up** needs an active plan, which people buy on your website at
+`https://api.your-domain.com/account` (log in → **Subscribe - $20/year** → Stripe Checkout). Restoring
+already-saved data always works, and **nothing is deleted when a plan lapses**: backups just pause.
+
+**The apps never advertise the plan.** There's no price, Subscribe button or link in the apps. They only say
+"Cloud backup isn't active for this account" when that's the case. Promote the plan on your own site.
+(This also keeps the iPhone app clear of Apple's in-app-purchase rules, since nothing is sold or linked in the app.)
+
+Setup (one time):
+1. Create a Stripe account and fill in your business details. Turn on **Stripe Tax** in the dashboard if
+   you need sales tax / VAT handled.
+2. Run the setup script. It creates the $20/year price, the webhook and the customer billing portal,
+   and saves the keys:
+   ```bash
+   sudo STRIPE_SECRET_KEY=sk_test_... /opt/ruskimaxxing-cloud/venv/bin/python \
+       /opt/ruskimaxxing-cloud/app/server/deploy/setup_stripe.py https://api.your-domain.com \
+       --write /etc/ruskimaxxing-cloud.env
+   sudo systemctl restart ruskimaxxing-cloud
+   ```
+   Start with the **test** key (`sk_test_...`) and pay with card `4242 4242 4242 4242`. When everything
+   works, run it again with the **live** key (`sk_live_...`).
+3. Free accounts for you, family or testers: `COMPLIMENTARY_EMAILS=you@x.com,friend@y.com` in
+   `/etc/ruskimaxxing-cloud.env`, then restart.
+
+People manage or cancel their plan from the same account page (**Manage billing / cancel** opens Stripe's
+customer portal). Leave `STRIPE_SECRET_KEY` empty and backups are free for everyone.
+
 ### Password-reset emails
 Edit `/etc/ruskimaxxing-cloud.env` and fill in `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM`
 from any email provider (Brevo, Mailgun, Postmark, Amazon SES, your own mail server). Then run
@@ -85,6 +113,8 @@ sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.c
 | POST | `/api/sync` | `{edition, since, changes[]}` → `{changes[], seq}` (newest edit wins) |
 | DELETE | `/api/account` | `{password}`, deletes the account and all data |
 | POST | `/api/password-reset` | emails a one-hour reset link (`/reset?token=…`) |
+| GET/POST | `/account` | website account page: plan status, subscribe, manage billing |
+| POST | `/stripe/webhook` | Stripe plan updates (signature-verified) |
 | GET | `/health`, `/privacy` | health check, privacy policy |
 
 ## Develop / test locally

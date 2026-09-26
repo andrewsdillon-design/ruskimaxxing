@@ -587,7 +587,12 @@ class RuskiMaxxing(toga.App):
             result = await asyncio.get_running_loop().run_in_executor(None, work)
         except CloudError as e:
             self.cloud_status.text = wrap(self.cloud.status(), 10)
-            await self.main_window.dialog(toga.ErrorDialog("Cloud backup", str(e)))
+            self.cloud_pw.value = ""
+            if e.code == 402:  # signed in, backups just aren't active for this account
+                self.refresh_all()
+                await self.info("Cloud backup", str(e))
+            else:
+                await self.main_window.dialog(toga.ErrorDialog("Cloud backup", str(e)))
             return
         self.cloud_pw.value = ""
         self.cloud_status.text = wrap(self.cloud.status(), 10)

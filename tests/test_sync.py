@@ -104,3 +104,22 @@ def test_errors_and_logout(tmp_path, transport):
     c.login(URL, "c@y.com", "password1")
     c.delete_account("password1")
     assert not c.logged_in
+
+
+def test_inactive_plan_restores_and_queues_backups(tmp_path, transport, monkeypatch):
+    """Paid storage: without a plan, restore still works and local edits wait until backups are active."""
+    free = device(tmp_path, "free", transport)
+    free.register(URL, "free@y.com", "password1")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")   # billing on from here
+    free.store.set_bodyweight(BodyWeight(1, date(2026, 1, 5), 180))
+    with pytest.raises(CloudError, match="isn't active") as err:
+        free.sync()
+    assert err.value.code == 402 and "$" not in str(err.value)
+    assert "aren't active" in free.status()
+    monkeypatch.setenv("COMPLIMENTARY_EMAILS", "free@y.com")   # plan becomes active
+    sent, _ = free.sync()
+    assert sent >= 1                                           # the queued edit went up
+    other = device(tmp_path, "other", transport)
+    other.login(URL, "free@y.com", "password1")
+    other.sync()
+    assert other.store.bodyweights()[0].weight == 180

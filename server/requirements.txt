@@ -3,7 +3,8 @@ uvicorn[standard]>=0.30
 sqlalchemy>=2.0
 psycopg[binary]>=3.2      # PostgreSQL driver (production)
 argon2-cffi>=23.1         # password hashing
-python-multipart>=0.0.9   # password-reset form
+python-multipart>=0.0.9   # web forms (account page, password reset)
+stripe>=12                # $20/year cloud-backup plan
 # tests
 httpx>=0.27
 pytest>=8

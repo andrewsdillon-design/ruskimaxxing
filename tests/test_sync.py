@@ -36,6 +36,7 @@ def transport(tmp_path):
         r = client.request(method, url[len(URL):], json=body,
                            headers={"Authorization": f"Bearer {token}"} if token else {})
         return r.status_code, r.json()
+    call.client = client
     return call
 
 
@@ -123,3 +124,35 @@ def test_inactive_plan_restores_and_queues_backups(tmp_path, transport, monkeypa
     other.login(URL, "free@y.com", "password1")
     other.sync()
     assert other.store.bodyweights()[0].weight == 180
+
+
+def test_sign_in_with_browser(tmp_path, transport):
+    """The app opens the website; the person signs up there; the app picks up the login by itself."""
+    phone = device(tmp_path, "phone", transport)
+    phone.store.set("cloud_url", URL)
+    phone.store.set_bodyweight(BodyWeight(1, date(2026, 1, 5), 181))
+    link = phone.start_browser_sign_in(phone=True)
+    assert phone.pending_code == link["code"] and "code" in phone.status()
+    assert phone.poll_sign_in() is False                       # still waiting
+    browser = transport.client
+    code = link["url"].split("code=")[1]
+    r = browser.post("/account/register", data={"email": "web@example.com", "password": "clean-jerk-1",
+                                                "password2": "clean-jerk-1", "next": f"/link?code={code}"})
+    assert "Connect this app" in r.text                         # followed the redirect back to the link page
+    assert "You're signed in" in browser.post("/link", data={"code": code}).text
+    assert phone.poll_sign_in() is True
+    assert phone.logged_in and phone.email == "web@example.com" and phone.pending_code == ""
+    assert phone.sync()[0] >= 1                                 # and backups work right away
+
+
+def test_sign_in_link_expiry_and_cancel(tmp_path, transport):
+    phone = device(tmp_path, "phone", transport)
+    phone.store.set("cloud_url", URL)
+    phone.start_browser_sign_in()
+    phone.cancel_sign_in()
+    assert phone.pending_code == "" and not phone.logged_in
+    with pytest.raises(CloudError):
+        phone.poll_sign_in()
+    phone.start_browser_sign_in()
+    phone.store.set("cloud_link_until", "1")                    # long expired
+    assert phone.pending_code == "" and "Not signed in" in phone.status()

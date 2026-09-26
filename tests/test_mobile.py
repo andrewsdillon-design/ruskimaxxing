@@ -90,3 +90,37 @@ def test_day_dropdown(app):
     app.day_select.value = app.day_items[2]
     app._day_changed(app.day_select)
     assert app.day == 2 and app.day_select.value.startswith("Day 3")
+
+
+def texts(box):
+    out = []
+    for w in box.children:
+        out += texts(w) if w.children else [getattr(w, "text", "")]
+    return out
+
+
+def test_cloud_sign_in_states(app, monkeypatch):
+    import time
+
+    import ruskimaxxing_mobile.app as mod
+    opened = []
+    monkeypatch.setattr(mod, "open_url", opened.append)
+    app.refresh_cloud()
+    assert "Sign in or create account" in texts(app.cloud_box)
+    assert not any("Password" in t or "Email" in t for t in texts(app.cloud_box))   # no forms in the app
+    s = app.store
+    s.set("cloud_link_device", "dev"), s.set("cloud_link_code", "ABCD-EFGH")
+    s.set("cloud_link_url", "https://api.ruskimaxxing.com/link?code=ABCDEFGH")
+    s.set("cloud_link_until", str(time.time() + 600))
+    app.refresh_cloud()
+    shown = texts(app.cloud_box)
+    assert "Code: ABCD-EFGH" in shown and "Open sign-in page again" in shown
+    app._cloud_reopen(None)
+    assert opened == ["https://api.ruskimaxxing.com/link?code=ABCDEFGH"]
+    app._cloud_cancel(None)
+    assert "Sign in or create account" in texts(app.cloud_box)
+    s.set("cloud_token", "t"), s.set("cloud_email", "me@example.com")
+    app.refresh_cloud()
+    assert "Back up now" in texts(app.cloud_box) and "me@example.com" in app.cloud_status.text
+    app._cloud_delete(None)
+    assert opened[-1] == "https://api.ruskimaxxing.com/account/delete"

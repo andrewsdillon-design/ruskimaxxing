@@ -8,6 +8,8 @@ All data lives in a local SQLite file (see storage.py).
 
 import sys
 import threading
+import time
+import webbrowser
 import tkinter as tk
 from pathlib import Path
 from datetime import date, timedelta
@@ -23,7 +25,7 @@ from ruskimaxxing.prilepin import ZONES
 from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
                                   month_label, month_of, month_weeks, next_monday, week_label)
 from ruskimaxxing.storage import Store
-from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
+from ruskimaxxing.sync import Cloud, CloudError
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
                                    BodyWeight, LogEntry, best_e1rm, e1rm_history, new_prs,
                                    rep_maxes)
@@ -349,25 +351,35 @@ class App(ttk.Frame):
         self.cloud = Cloud(self.store)
         box = ttk.LabelFrame(parent, text="3. Cloud backup (optional) - get your data back on a new device", padding=6)
         box.pack(fill="x", pady=(8, 0))
-        self.cloud_url = tk.StringVar(value=self.store.get("cloud_url", "") or DEFAULT_SERVER)
-        self.cloud_email = tk.StringVar(value=self.store.get("cloud_email", ""))
-        self.cloud_pw = tk.StringVar()
-        ttk.Label(box, text="Server").grid(row=0, column=0, sticky="w", padx=(0, 4))
-        ttk.Entry(box, textvariable=self.cloud_url, width=40).grid(row=0, column=1, columnspan=3, sticky="w")
-        ttk.Label(box, text="Email").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
-        ttk.Entry(box, textvariable=self.cloud_email, width=24).grid(row=1, column=1, sticky="w")
-        ttk.Label(box, text="Password").grid(row=1, column=2, sticky="w", padx=(10, 4))
-        ttk.Entry(box, textvariable=self.cloud_pw, width=18, show="*").grid(row=1, column=3, sticky="w")
-        bar = ttk.Frame(box)
-        bar.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Style(self.root).configure("Small.TButton", padding=(4, 1), font=("TkDefaultFont", 9, "bold"))
-        for text, action in (("Sign up", self._cloud_register), ("Log in", self._cloud_login),
-                             ("Back up", self._cloud_sync), ("Forgot password", self._cloud_reset),
-                             ("Log out", self._cloud_logout), ("Delete account", self._cloud_delete)):
-            ttk.Button(bar, text=text, command=action, style="Small.TButton", width=len(text)).pack(
-                side="left", padx=(0, 2))
-        self.cloud_status = ttk.Label(box, text=self.cloud.status(), foreground="#6b5a45")
-        self.cloud_status.grid(row=3, column=0, columnspan=4, sticky="w", pady=(3, 0))
+        self.cloud_status = ttk.Label(box, foreground="#6b5a45")
+        self.cloud_status.pack(anchor="w")
+        self.cloud_btns = ttk.Frame(box)
+        self.cloud_btns.pack(anchor="w", pady=(4, 0))
+        self._cloud_polling = False
+        self.refresh_cloud()
+        if self.cloud.pending_code:     # closed while signing in: keep waiting
+            self._poll_sign_in()
+
+    def refresh_cloud(self):
+        self.cloud_status.config(text=self.cloud.status())
+        for w in self.cloud_btns.winfo_children():
+            w.destroy()
+        if self.cloud.logged_in:
+            actions = (("Back up now", self._cloud_sync), ("Log out", self._cloud_logout),
+                       ("Delete account (website)", self._cloud_delete))
+        elif self.cloud.pending_code:
+            ttk.Label(self.cloud_btns, text=f"Code {self.cloud.pending_code}", font=("TkDefaultFont", 12, "bold"),
+                      foreground=BYZ["purple"]).pack(side="left", padx=(0, 8))
+            actions = (("Open sign-in page again", lambda: webbrowser.open(self.store.get("cloud_link_url", ""))),
+                       ("Cancel", self._cloud_cancel))
+        else:
+            actions = (("Sign in or create account", self._cloud_sign_in),)
+            ttk.Label(self.cloud_btns, text="  Opens the RuskiMaxxing website in your browser. Accounts are free.",
+                      foreground="#6b5a45").pack(side="right")
+        for text, action in actions:
+            ttk.Button(self.cloud_btns, text=text, command=action, style="Small.TButton").pack(side="left",
+                                                                                             padx=(0, 4))
 
     def _cloud_run(self, work, done_message=None):
         """Run a network call off the UI thread, then report back."""
@@ -385,8 +397,7 @@ class App(ttk.Frame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _cloud_done(self, message, error):
-        self.cloud_pw.set("")
-        self.cloud_status.config(text=self.cloud.status())
+        self.refresh_cloud()
         if error:
             messagebox.showerror("Cloud backup", error, parent=self.root)
         else:
@@ -394,32 +405,51 @@ class App(ttk.Frame):
                 messagebox.showinfo("Cloud backup", message, parent=self.root)
             self.refresh(rebuild=True)
 
-    def _cloud_register(self):
-        url, email, pw = self.cloud_url.get(), self.cloud_email.get(), self.cloud_pw.get()
-        self._cloud_run(lambda: (self.cloud.register(url, email, pw), self.cloud.sync())[1],
-                        lambda r: f"Account created and {r[0]} records backed up.")
+    def _cloud_sign_in(self):
+        def started(link):
+            webbrowser.open(link["url"])
+            self._poll_sign_in()
+            return ""
+        self._cloud_run(lambda: started(self.cloud.start_browser_sign_in()))
 
-    def _cloud_login(self):
-        url, email, pw = self.cloud_url.get(), self.cloud_email.get(), self.cloud_pw.get()
-        self._cloud_run(lambda: (self.cloud.login(url, email, pw), self.cloud.sync())[1],
-                        lambda r: f"Logged in. Restored {r[1]} records, backed up {r[0]}.")
+    def _cloud_cancel(self):
+        self.cloud.cancel_sign_in()
+        self.refresh_cloud()
+
+    def _poll_sign_in(self):
+        """Check every 2 seconds (off the UI thread) until the website sign-in is finished or expires."""
+        if self._cloud_polling:
+            return
+        self._cloud_polling = True
+
+        def worker():
+            while self.cloud.pending_code:
+                time.sleep(2)
+                try:
+                    if self.cloud.poll_sign_in():
+                        sent, got = self.cloud.sync()
+                        msg = f"Signed in as {self.cloud.email}. Restored {got} records, backed up {sent}."
+                        self.root.after(0, lambda: self._cloud_done(msg, None))
+                        break
+                except CloudError as e:
+                    if not self.cloud.pending_code and not self.cloud.logged_in:
+                        self.root.after(0, lambda e=e: self._cloud_done("", str(e)))
+                        break
+                    if self.cloud.logged_in:   # signed in; only the first backup failed (e.g. 402)
+                        self.root.after(0, lambda e=e: self._cloud_done(str(e), None))
+                        break
+            self._cloud_polling = False
+            self.root.after(0, self.refresh_cloud)
+        threading.Thread(target=worker, daemon=True).start()
 
     def _cloud_sync(self):
         self._cloud_run(self.cloud.sync, lambda r: f"Backed up {r[0]}, received {r[1]} records.")
-
-    def _cloud_reset(self):
-        url, email = self.cloud_url.get(), self.cloud_email.get()
-        self._cloud_run(lambda: self.cloud.reset_password(url, email), lambda msg: msg)
 
     def _cloud_logout(self):
         self._cloud_run(self.cloud.logout, "Logged out. Your data stays on this device.")
 
     def _cloud_delete(self):
-        if not messagebox.askyesno("Delete account", "Permanently delete your cloud account and every backup on "
-                                   "the server? Data on this device stays.", parent=self.root):
-            return
-        pw = self.cloud_pw.get()
-        self._cloud_run(lambda: self.cloud.delete_account(pw), "Account and cloud backups deleted.")
+        webbrowser.open(self.cloud.account_page("/account/delete"))
 
     def autosave_workout(self):
         if self.wo_dirty:

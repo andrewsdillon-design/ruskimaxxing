@@ -51,6 +51,16 @@ requires = ["toga-gtk~=0.5.6"]
 requires = ["toga-android~=0.5.6"]
 base_theme = "Theme.MaterialComponents.Light.DarkActionBar"
 build_gradle_dependencies = ["com.google.android.material:material:1.13.0"]
+# after signing in on the website, "Return to the app" (ruskimaxxing://) brings the running app back to the front
+android_manifest_activity_attrs_extra_content = 'android:launchMode="singleTask"'
+android_manifest_activity_extra_content = """
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ruskimaxxing" />
+            </intent-filter>"""
 
 [tool.briefcase.app.ruskimaxxing_mobile.iOS]
 requires = ["toga-iOS~=0.5.6"]
+info.CFBundleURLTypes = [{ CFBundleURLName = "io.github.andrewsdillondesign.ruskimaxxing_mobile", CFBundleURLSchemes = ["ruskimaxxing"] }]

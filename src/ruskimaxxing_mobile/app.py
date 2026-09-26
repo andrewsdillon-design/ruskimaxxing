@@ -28,7 +28,7 @@ from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, bui
                                   month_weeks,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
-from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
+from ruskimaxxing.sync import Cloud, CloudError
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, BodyFat, BodyWeight, LogEntry,
                                    best_e1rm, e1rm_history, rep_maxes)
 
@@ -194,6 +194,8 @@ class RuskiMaxxing(toga.App):
         self.main_window.content = col(header, self.tabs, background_color=PARCHMENT, flex=1)
         self.refresh_all()
         self.main_window.show()
+        if self.cloud.pending_code:     # the app was closed while signing in: keep waiting
+            self._watch_sign_in()
 
     # ----- helpers ----------------------------------------------------------------
     def cfg(self) -> wo.Settings:
@@ -541,11 +543,8 @@ class RuskiMaxxing(toga.App):
         for text, z in zip(("Under 70%", "70-80%", "80-90%", "90%+"), ZONES):
             prilepin.add(label(f"{text}:  {z.reps_per_set[0]}-{z.reps_per_set[1]} reps/set,  "
                                f"{z.optimal_total} optimal ({z.total_range[0]}-{z.total_range[1]})", 11))
-        self.cloud_url = toga.TextInput(value=s.get("cloud_url", "") or DEFAULT_SERVER,
-                                        placeholder="Server (https://api.ruskimaxxing.com)")
-        self.cloud_email = toga.TextInput(value=s.get("cloud_email", ""), placeholder="Email")
-        self.cloud_pw = toga.PasswordInput(placeholder="Password (8+ characters)")
         self.cloud_status = label(Cloud(s).status(), 10, color="#6b5a45")
+        self.cloud_box = col(gap=4)
         tip = toga.Label(wrap(SHOULDER_TIP, 10), style=Pack(font_size=10, font_weight="bold", color=IVORY,
                                                             background_color=CRIMSON, margin=6))
         return toga.ScrollContainer(horizontal=False, content=col(
@@ -567,12 +566,8 @@ class RuskiMaxxing(toga.App):
             self.base_list,
             section("3. Cloud backup (optional)"),
             label("Back up to the cloud so you can log in on a new phone and get everything back.", 10),
-            self.cloud_url, self.cloud_email, self.cloud_pw,
-            row(button("Sign up", self._cloud_register, flex=1), button("Log in", self._cloud_login, flex=1), gap=6),
-            row(button("Back up now", self._cloud_sync, flex=1), button("Log out", self._cloud_logout, flex=1), gap=6),
-            row(button("Forgot password", self._cloud_reset, flex=1),
-                button("Delete account", self._cloud_delete, flex=1), gap=6),
             self.cloud_status,
+            self.cloud_box,
             section("Prilepin's chart"),
             prilepin,
             margin=8, gap=4))
@@ -617,55 +612,125 @@ class RuskiMaxxing(toga.App):
         try:
             result = await asyncio.get_running_loop().run_in_executor(None, work)
         except CloudError as e:
-            self.cloud_status.text = wrap(self.cloud.status(), 10)
-            self.cloud_pw.value = ""
+            self.refresh_cloud()
             if e.code == 402:  # signed in, backups just aren't active for this account
                 self.refresh_all()
                 await self.info("Cloud backup", str(e))
             else:
                 await self.main_window.dialog(toga.ErrorDialog("Cloud backup", str(e)))
             return
-        self.cloud_pw.value = ""
-        self.cloud_status.text = wrap(self.cloud.status(), 10)
         self.refresh_all()
         message = done(result) if callable(done) else done
         if message:
             await self.info("Cloud backup", message)
 
-    async def _cloud_register(self, widget):
-        url, email, pw = self.cloud_url.value, self.cloud_email.value, self.cloud_pw.value
-        await self._cloud(lambda: (self.cloud.register(url, email, pw), self.cloud.sync())[1],
-                          lambda r: f"Account created and {r[0]} records backed up.")
+    def refresh_cloud(self):
+        """Cloud section: one big Sign in button, or the waiting state, or the signed-in actions."""
+        self.cloud_status.text = wrap(self.cloud.status(), 10)
+        self.cloud_box.clear()
+        if self.cloud.logged_in:
+            self.cloud_box.add(row(button("Back up now", self._cloud_sync, flex=1),
+                                   button("Log out", self._cloud_logout, flex=1), gap=6))
+            self.cloud_box.add(row(button("Delete account (website)", self._cloud_delete, flex=1)))
+        elif self.cloud.pending_code:
+            self.cloud_box.add(label(f"Code: {self.cloud.pending_code}", 16, True, PURPLE))
+            self.cloud_box.add(label("Sign in or create your account in the browser page that opened, then come "
+                                     "back here. This finishes by itself.", 10))
+            self.cloud_box.add(row(button("Open sign-in page again", self._cloud_reopen, flex=1),
+                                   button("Cancel", self._cloud_cancel, width=90), gap=6))
+        else:
+            self.cloud_box.add(row(button("Sign in or create account", self._cloud_sign_in, flex=1)))
+            self.cloud_box.add(label("Opens the RuskiMaxxing website in your browser. Accounts are free.", 10,
+                                     color="#6b5a45"))
 
-    async def _cloud_login(self, widget):
-        url, email, pw = self.cloud_url.value, self.cloud_email.value, self.cloud_pw.value
-        await self._cloud(lambda: (self.cloud.login(url, email, pw), self.cloud.sync())[1],
-                          lambda r: f"Logged in. Restored {r[1]} records, backed up {r[0]}.")
+    async def _cloud_sign_in(self, widget):
+        self.cloud_status.text = "Opening your browser..."
+        try:
+            link = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: self.cloud.start_browser_sign_in(phone=True))
+        except CloudError as e:
+            self.refresh_cloud()
+            await self.main_window.dialog(toga.ErrorDialog("Cloud backup", str(e)))
+            return
+        self.refresh_cloud()
+        open_url(link["url"])
+        self._watch_sign_in()
+
+    def _cloud_reopen(self, widget):
+        open_url(self.store.get("cloud_link_url", ""))
+
+    def _cloud_cancel(self, widget):
+        self.cloud.cancel_sign_in()
+        self.refresh_cloud()
+
+    def _watch_sign_in(self):
+        if not getattr(self, "_watching", False):
+            self._watching = True
+            asyncio.get_event_loop().create_task(self._poll_sign_in())
+
+    async def _poll_sign_in(self):
+        """Check every 2 seconds until the person finishes on the website (or the link expires)."""
+        loop = asyncio.get_running_loop()
+        try:
+            while self.cloud.pending_code:
+                await asyncio.sleep(2)
+                try:
+                    done = await loop.run_in_executor(None, self.cloud.poll_sign_in)
+                except CloudError as e:
+                    if self.cloud.pending_code:
+                        continue            # no signal for a moment: keep waiting
+                    self.refresh_cloud()
+                    await self.info("Cloud backup", str(e))
+                    return
+                if done:
+                    self.refresh_cloud()
+                    await self._cloud(self.cloud.sync, lambda r: f"Signed in as {self.cloud.email}. Restored "
+                                                                 f"{r[1]} records, backed up {r[0]}.")
+                    return
+        finally:
+            self._watching = False
+            self.refresh_cloud()
 
     async def _cloud_sync(self, widget):
         self.autosave()
         await self._cloud(self.cloud.sync, lambda r: f"Backed up {r[0]}, received {r[1]} records.")
 
-    async def _cloud_reset(self, widget):
-        url, email = self.cloud_url.value, self.cloud_email.value
-        await self._cloud(lambda: self.cloud.reset_password(url, email), lambda msg: msg)
-
     async def _cloud_logout(self, widget):
         await self._cloud(self.cloud.logout, "Logged out. Your data stays on this phone.")
 
-    async def _cloud_delete(self, widget):
-        sure = await self.main_window.dialog(toga.QuestionDialog(
-            "Delete account", "Permanently delete your cloud account and every backup on the server? "
-                              "Data on this phone stays."))
-        if sure:
-            pw = self.cloud_pw.value
-            await self._cloud(lambda: self.cloud.delete_account(pw), "Account and cloud backups deleted.")
+    def _cloud_delete(self, widget):
+        open_url(self.cloud.account_page("/account/delete"))
 
     def refresh_setup(self):
+        self.refresh_cloud()
         self.base_list.clear()
         for e in (e for e in self.store.lifts() if e.kind == "baseline"):
             self.base_list.add(row(label(f"{e.exercise}: {e.weight:g} x {e.reps}  (e1RM {e.e1rm:.0f})", 11, flex=1),
                                    button("X", lambda w, i=e.id: self._delete_base(i), width=40), gap=6))
+
+
+def open_url(url: str) -> None:
+    """Open a web page in the phone's browser (Android / iOS), or the default browser on a computer."""
+    if not url:
+        return
+    platform = toga.platform.current_platform
+    try:
+        if platform == "android":
+            from java import jclass
+            Intent, Uri = jclass("android.content.Intent"), jclass("android.net.Uri")
+            activity = jclass("org.beeware.android.MainActivity").singletonThis
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            return
+        if platform == "iOS":
+            from rubicon.objc import ObjCClass
+            app = ObjCClass("UIApplication").sharedApplication
+            app.openURL(ObjCClass("NSURL").URLWithString(url), options=ObjCClass("NSDictionary").dictionary(),
+                        completionHandler=None)
+            return
+    except Exception:  # fall back to the standard library
+        pass
+    import webbrowser
+    webbrowser.open(url)
 
 
 def short_week(week: int) -> str:

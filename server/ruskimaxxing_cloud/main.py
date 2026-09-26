@@ -38,7 +38,7 @@ from email.message import EmailMessage
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request
+from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
@@ -58,6 +58,9 @@ REFUND_DAYS = 30                        # full refund of any charge (first year 
 REMINDER_WINDOW = (30, 45)              # renewal reminder goes out 30-45 days before each yearly renewal
 TERMS_UPDATED = "September 26, 2026"
 MAX_CHANGES = 5000
+LINK_MINUTES = 15
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I
+APP_SCHEMES = {"standard": "ruskimaxxing", "supertotal": "ruskimaxxingsupertotal"}  # phone apps' return links
 ph = PasswordHasher()
 
 
@@ -99,6 +102,17 @@ class ResetToken(Base):
     __tablename__ = "reset_tokens"
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires: Mapped[datetime] = mapped_column(DateTime)
+
+
+class AppLink(Base):
+    """A pending "sign in with your browser" request from an app (like the TV-style device login)."""
+    __tablename__ = "app_links"
+    device_hash: Mapped[str] = mapped_column(String(64), primary_key=True)   # secret the app polls with (hashed)
+    user_code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # shown in the app and the page
+    edition: Mapped[str] = mapped_column(String(20))
+    phone: Mapped[bool] = mapped_column(Boolean, default=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     expires: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -253,6 +267,15 @@ class Change(BaseModel):
     data: dict | None = None
 
 
+class LinkStart(BaseModel):
+    edition: str = "standard"
+    phone: bool = False
+
+
+class LinkPoll(BaseModel):
+    device_code: str
+
+
 class SyncRequest(BaseModel):
     edition: str
     since: int = 0
@@ -285,31 +308,85 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def health():
         return {"ok": True}
 
-    @app.post("/api/register")
-    def register(body: Credentials, s: Session = Depends(db)):
-        email = body.email.strip().lower()
-        if "@" not in email:
+    def create_user(s: Session, email: str, password: str) -> User:
+        email = email.strip().lower()
+        if "@" not in email or "." not in email.split("@")[-1] or len(email) > 320:
             raise HTTPException(400, "Enter a valid email address")
+        if len(password) < 8:
+            raise HTTPException(400, "Use a password of at least 8 characters")
         if s.scalar(select(User).where(User.email == email)):
             raise HTTPException(409, "That email already has an account - log in instead")
-        user = User(email=email, password_hash=ph.hash(body.password))
+        user = User(email=email, password_hash=ph.hash(password))
         s.add(user)
         s.flush()
+        return user
+
+    def erase_user(s: Session, user: User) -> None:
+        for model in (Record, LoginSession, ResetToken, AppLink):
+            s.execute(delete(model).where(model.user_id == user.id))
+        s.delete(user)
+        s.commit()
+
+    def check_password(s: Session, email: str, password: str) -> User | None:
+        user = s.scalar(select(User).where(User.email == email.strip().lower()))
+        try:
+            ok = bool(user) and ph.verify(user.password_hash, password)
+        except (VerifyMismatchError, InvalidHashError):
+            ok = False
+        if ok and ph.check_needs_rehash(user.password_hash):
+            user.password_hash = ph.hash(password)
+        return user if ok else None
+
+    def request_reset(s: Session, email: str) -> None:
+        user = s.scalar(select(User).where(User.email == email.strip().lower()))
+        if user and mail_on():
+            token = secrets.token_urlsafe(32)
+            s.add(ResetToken(token_hash=digest(token), user_id=user.id, expires=utcnow() + timedelta(hours=1)))
+            s.commit()
+            link = f"{public_url()}/reset?token={token}"
+            send_mail(user.email, "Reset your RuskiMaxxing password",
+                      f"Reset your password within 1 hour:\n\n{link}\n\nIf you didn't ask for this, ignore it.")
+
+    @app.post("/api/register")
+    def register(body: Credentials, s: Session = Depends(db)):
+        user = create_user(s, body.email, body.password)
         token = new_session(s, user)
         s.commit()
-        return {"token": token, "email": email, "plan": plan_info(user)}
+        return {"token": token, "email": user.email, "plan": plan_info(user)}
+
+    # ----- "sign in with your browser" for the apps ------------------------------------
+    @app.post("/api/link/start")
+    def link_start(body: LinkStart, request: Request, s: Session = Depends(db)):
+        if body.edition not in EDITIONS:
+            raise HTTPException(400, "Unknown edition")
+        s.execute(delete(AppLink).where(AppLink.expires < utcnow()))
+        device_code = secrets.token_urlsafe(32)
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+        s.add(AppLink(device_hash=digest(device_code), user_code=code, edition=body.edition, phone=body.phone,
+                      expires=utcnow() + timedelta(minutes=LINK_MINUTES)))
+        s.commit()
+        return {"device_code": device_code, "code": f"{code[:4]}-{code[4:]}",
+                "url": f"{public_url(request)}/link?code={code}", "interval": 2, "expires_in": LINK_MINUTES * 60}
+
+    @app.post("/api/link/poll")
+    def link_poll(body: LinkPoll, response: Response, s: Session = Depends(db)):
+        row = s.get(AppLink, digest(body.device_code))
+        if not row or row.expires < utcnow():
+            raise HTTPException(410, "That sign-in expired. Tap Sign in again.")
+        if not row.user_id:
+            response.status_code = 202
+            return {"pending": True}
+        user = s.get(User, row.user_id)
+        s.delete(row)
+        token = new_session(s, user)
+        s.commit()
+        return {"token": token, "email": user.email, "plan": plan_info(user)}
 
     @app.post("/api/login")
     def login(body: Credentials, s: Session = Depends(db)):
-        user = s.scalar(select(User).where(User.email == body.email.strip().lower()))
-        try:
-            ok = bool(user) and ph.verify(user.password_hash, body.password)
-        except (VerifyMismatchError, InvalidHashError):
-            ok = False
-        if not ok:
+        user = check_password(s, body.email, body.password)
+        if not user:
             raise HTTPException(401, "Wrong email or password")
-        if ph.check_needs_rehash(user.password_hash):
-            user.password_hash = ph.hash(body.password)
         token = new_session(s, user)
         s.commit()
         return {"token": token, "email": user.email, "plan": plan_info(user)}
@@ -363,10 +440,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             ph.verify(user.password_hash, body.password)
         except (VerifyMismatchError, InvalidHashError):
             raise HTTPException(401, "Wrong password") from None
-        for model in (Record, LoginSession, ResetToken):
-            s.execute(delete(model).where(model.user_id == user.id))
-        s.delete(user)
-        s.commit()
+        erase_user(s, user)
         return {"deleted": True}
 
     # ----- web account page: plan status, subscribe, manage billing --------------------
@@ -381,18 +455,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(403, "Bad origin")
 
     @app.get("/account", response_class=HTMLResponse)
-    def account(request: Request, paid: int = 0, msg: str = "", error: int = 0, rmx_session: str | None = Cookie(default=None),
-                s: Session = Depends(db)):
+    def account(request: Request, paid: int = 0, msg: str = "", error: int = 0, next: str = "/account",
+                rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
         user = web_user(s, rmx_session)
         if not user:
-            return page("Your RuskiMaxxing account", """
-                <p>Log in with the email and password you use in the app.
-                (No account yet? Create one in the app under Cloud backup.)</p>
-                <form method="post" action="/account/login">
-                  <p><label>Email<br><input name="email" type="email" required></label></p>
-                  <p><label>Password<br><input name="password" type="password" required></label></p>
-                  <p><button>Log in</button></p>
-                </form>""")
+            return page("Log in", login_form(next))
+        if safe_next(next) != "/account":
+            return RedirectResponse(safe_next(next), status_code=303)
         info = plan_info(user)
         if info["complimentary"] or not info["billing"]:
             status = "<p><b>Cloud backup is free for your account.</b></p>"
@@ -424,36 +493,139 @@ def create_app(database_url: str | None = None) -> FastAPI:
                              f"a charge? Email {html.escape(contact_email())}.</p>"}
         return page("Your RuskiMaxxing account", f"""
             <p>Signed in as {html.escape(user.email)}</p>{thanks}{notes.get(msg, "")}{status}{actions}
-            <form method="post" action="/account/logout"><p><button>Log out</button></p></form>""")
+            <form method="post" action="/account/logout"><p><button>Log out</button></p></form>
+            <p><a href="/account/delete">Delete account</a></p>""")
 
-    @app.post("/account/login")
-    def account_login(request: Request, email: str = Form(...), password: str = Form(...),
-                      s: Session = Depends(db)):
-        same_origin(request)
-        user = s.scalar(select(User).where(User.email == email.strip().lower()))
-        try:
-            ok = bool(user) and ph.verify(user.password_hash, password)
-        except (VerifyMismatchError, InvalidHashError):
-            ok = False
-        if not ok:
-            return HTMLResponse(page("Log in", '<p>Wrong email or password. <a href="/account">Try again</a>.</p>'),
-                                status_code=401)
+    def signed_in(request: Request, s: Session, user: User, nxt: str) -> RedirectResponse:
         token = secrets.token_urlsafe(32)
         s.add(LoginSession(token_hash=digest(token), user_id=user.id,
                            expires=utcnow() + timedelta(days=WEB_SESSION_DAYS)))
         s.commit()
-        resp = RedirectResponse("/account", status_code=303)
+        resp = RedirectResponse(safe_next(nxt), status_code=303)
         resp.set_cookie(COOKIE, token, max_age=WEB_SESSION_DAYS * 86400, httponly=True, samesite="lax",
                         secure=public_url(request).startswith("https://"))
         return resp
 
+    @app.post("/account/login")
+    def account_login(request: Request, email: str = Form(...), password: str = Form(...),
+                      next: str = Form(default="/account"), s: Session = Depends(db)):
+        same_origin(request)
+        user = check_password(s, email, password)
+        if not user:
+            return HTMLResponse(page("Log in", login_form(next, "Wrong email or password.", email)), status_code=401)
+        return signed_in(request, s, user, next)
+
+    @app.get("/signup", response_class=HTMLResponse)
+    def signup_page(next: str = "/account"):
+        return page("Create your account", signup_form(next))
+
+    @app.post("/account/register")
+    def account_register(request: Request, email: str = Form(...), password: str = Form(...),
+                         password2: str = Form(...), next: str = Form(default="/account"),
+                         s: Session = Depends(db)):
+        same_origin(request)
+        if password != password2:
+            return HTMLResponse(page("Create your account", signup_form(next, "The passwords don't match.", email)),
+                                status_code=400)
+        try:
+            user = create_user(s, email, password)
+        except HTTPException as e:
+            return HTMLResponse(page("Create your account", signup_form(next, e.detail, email)),
+                                status_code=e.status_code)
+        return signed_in(request, s, user, next)
+
+    @app.get("/account/forgot", response_class=HTMLResponse)
+    def forgot_page():
+        return page("Forgot password", """
+            <p>Enter your account's email and we'll send a link to set a new password.</p>
+            <form method="post" action="/account/forgot">
+              <label>Email<input name="email" type="email" autocomplete="email" required></label>
+              <button>Send reset link</button></form>
+            <p><a href="/account">Back to log in</a></p>""")
+
+    @app.post("/account/forgot", response_class=HTMLResponse)
+    def forgot_submit(request: Request, email: str = Form(...), s: Session = Depends(db)):
+        same_origin(request)
+        request_reset(s, email)
+        return page("Check your email", "<p>If that email has an account, a reset link is on its way. It works "
+                                        "for 1 hour.</p><p><a href=\"/account\">Back to log in</a></p>")
+
+    @app.get("/account/delete", response_class=HTMLResponse)
+    def delete_page(rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
+        user = web_user(s, rmx_session)
+        if not user:
+            return page("Log in", login_form("/account/delete", "Log in to delete your account."))
+        return page("Delete account", f"""
+            <p>This permanently deletes <b>{html.escape(user.email)}</b> and every cloud backup for both apps. It can't
+            be undone. Your data on your own devices stays. If you have a paid plan, cancel it first under
+            <a href="/account">Manage billing / cancel</a>.</p>
+            <form method="post" action="/account/delete">
+              <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+              <button style="background:#8B1A1A">Delete my account</button></form>""")
+
+    @app.post("/account/delete", response_class=HTMLResponse)
+    def delete_submit(request: Request, password: str = Form(...), rmx_session: str | None = Cookie(default=None),
+                      s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user:
+            return RedirectResponse("/account", status_code=303)
+        if not check_password(s, user.email, password):
+            return HTMLResponse(page("Delete account", '<p>Wrong password. <a href="/account/delete">Try again</a>.'
+                                                       '</p>'), status_code=401)
+        erase_user(s, user)
+        resp = HTMLResponse(page("Account deleted", "<p>Your account and all cloud backups are deleted. Log out in "
+                                                    "the app (Cloud backup) to finish on each device.</p>"))
+        resp.delete_cookie(COOKIE)
+        return resp
+
+    # ----- the page an app opens to sign in ----------------------------------------
+    def live_link(s: Session, code: str) -> AppLink | None:
+        row = s.scalar(select(AppLink).where(AppLink.user_code == code.replace("-", "").strip().upper()))
+        return row if row and row.expires >= utcnow() else None
+
+    @app.get("/link", response_class=HTMLResponse)
+    def link_page(code: str = "", rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
+        row = live_link(s, code)
+        if not row:
+            return page("Link expired", "<p>This sign-in link expired or was already used. Go back to the app and "
+                                        "tap <b>Sign in</b> again.</p>")
+        here = f"/link?code={row.user_code}"
+        user = web_user(s, rmx_session)
+        if not user:
+            return page("Sign in to RuskiMaxxing", login_form(here))
+        return page("Connect the app", f"""
+            <p>Signed in as <b>{html.escape(user.email)}</b>.</p>
+            <p>Check that the app shows this code:</p>
+            <p style="font-size:28px;font-weight:bold;letter-spacing:3px">{row.user_code[:4]}-{row.user_code[4:]}</p>
+            <form method="post" action="/link"><input type="hidden" name="code" value="{row.user_code}">
+              <button>Connect this app</button></form>
+            <form method="post" action="/account/logout"><input type="hidden" name="next" value="{here}">
+              <p><button class="link">Not you? Use a different account</button></p></form>""")
+
+    @app.post("/link", response_class=HTMLResponse)
+    def link_approve(request: Request, code: str = Form(...), rmx_session: str | None = Cookie(default=None),
+                     s: Session = Depends(db)):
+        same_origin(request)
+        row, user = live_link(s, code), web_user(s, rmx_session)
+        if not row or not user:
+            return RedirectResponse(f"/link?code={html.escape(code)}", status_code=303)
+        row.user_id = user.id
+        s.commit()
+        back = (f'<p><a class="btn" href="{APP_SCHEMES[row.edition]}://signed-in">Return to the app</a></p>'
+                if row.phone else "")
+        return page("You're signed in", f"""
+            <p><b>Done - your app is connected to {html.escape(user.email)}.</b></p>
+            <p>Go back to the RuskiMaxxing app. It finishes signing in by itself in a few seconds.</p>{back}""")
+
     @app.post("/account/logout")
-    def account_logout(request: Request, rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
+    def account_logout(request: Request, next: str = Form(default="/account"),
+                       rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
         same_origin(request)
         if rmx_session:
             s.execute(delete(LoginSession).where(LoginSession.token_hash == digest(rmx_session)))
             s.commit()
-        resp = RedirectResponse("/account", status_code=303)
+        resp = RedirectResponse(safe_next(next), status_code=303)
         resp.delete_cookie(COOKIE)
         return resp
 
@@ -530,14 +702,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     # ----- password reset -----------------------------------------------------------
     @app.post("/api/password-reset")
     def password_reset(body: ResetRequest, s: Session = Depends(db)):
-        user = s.scalar(select(User).where(User.email == body.email.strip().lower()))
-        if user and mail_on():
-            token = secrets.token_urlsafe(32)
-            s.add(ResetToken(token_hash=digest(token), user_id=user.id, expires=utcnow() + timedelta(hours=1)))
-            s.commit()
-            link = f"{os.environ.get('PUBLIC_URL', '').rstrip('/')}/reset?token={token}"
-            send_mail(user.email, "Reset your RuskiMaxxing password",
-                      f"Reset your password within 1 hour:\n\n{link}\n\nIf you didn't ask for this, ignore it.")
+        request_reset(s, body.email)
         # same answer either way, so this can't be used to discover who has an account
         return {"ok": True, "message": "If that email has an account, a reset link is on its way."}
 
@@ -554,7 +719,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def reset_submit(token: str = Form(...), password: str = Form(...), s: Session = Depends(db)):
         row = s.get(ResetToken, digest(token))
         if not row or row.expires < utcnow():
-            return page("Link expired", "<p>This reset link is invalid or expired. Request a new one in the app.</p>")
+            return page("Link expired", '<p>This reset link is invalid or expired. '
+                                        '<a href="/account/forgot">Send a new one</a>.</p>')
         if len(password) < 8:
             return page("Too short", "<p>Use at least 8 characters. Go back and try again.</p>")
         user = s.get(User, row.user_id)
@@ -562,7 +728,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         s.execute(delete(ResetToken).where(ResetToken.user_id == user.id))
         s.execute(delete(LoginSession).where(LoginSession.user_id == user.id))  # log out everywhere
         s.commit()
-        return page("Password changed", "<p>Done. Log in again in the app with your new password.</p>")
+        return page("Password changed", '<p>Done. <a href="/account">Log in</a> with your new password.</p>')
 
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
@@ -608,6 +774,38 @@ def send_renewal_reminders(engine, now: datetime | None = None) -> int:
     return sent
 
 
+def safe_next(nxt: str) -> str:
+    """Only redirect within this site after logging in (no open redirects)."""
+    return nxt if nxt.startswith("/") and not nxt.startswith("//") and "\\" not in nxt else "/account"
+
+
+def login_form(nxt: str, error: str = "", email: str = "") -> str:
+    nxt = html.escape(safe_next(nxt))
+    err = f'<p class="err">{html.escape(error)}</p>' if error else ""
+    return f"""{err}<form method="post" action="/account/login"><input type="hidden" name="next" value="{nxt}">
+      <label>Email<input name="email" type="email" autocomplete="email" value="{html.escape(email)}" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <button>Log in</button></form>
+      <p><a href="/account/forgot">Forgot password?</a></p>
+      <hr><p><b>New here?</b> Accounts are free.</p>
+      <p><a class="btn alt" href="/signup?next={nxt}">Create an account</a></p>"""
+
+
+def signup_form(nxt: str, error: str = "", email: str = "") -> str:
+    nxt = html.escape(safe_next(nxt))
+    err = f'<p class="err">{html.escape(str(error))}</p>' if error else ""
+    return f"""{err}<form method="post" action="/account/register"><input type="hidden" name="next" value="{nxt}">
+      <label>Email<input name="email" type="email" autocomplete="email" value="{html.escape(email)}" required></label>
+      <label>Password (8+ characters)<input name="password" type="password" autocomplete="new-password"
+        minlength="8" required></label>
+      <label>Password again<input name="password2" type="password" autocomplete="new-password" minlength="8"
+        required></label>
+      <p class="small">By creating an account you agree to the <a href="/terms">Terms</a> and
+      <a href="/privacy">Privacy Policy</a>.</p>
+      <button>Create account</button></form>
+      <p>Already have an account? <a href="/account?next={nxt}">Log in</a></p>"""
+
+
 def subscribe_form(base: str, error: int = 0) -> str:
     """Subscribe button with the renewal terms right next to it and a required consent checkbox."""
     warn = "<p style='color:#8B1A1A'><b>Please tick the box to agree to the renewal terms.</b></p>" if error else ""
@@ -646,9 +844,17 @@ def send_mail(to: str, subject: str, text: str) -> None:
 def page(title: str, body: str) -> str:
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{title} - RuskiMaxxing</title>
-<style>body{{font-family:system-ui,sans-serif;background:#EDE3CF;color:#2B1B24;max-width:640px;margin:40px auto;
-padding:0 16px}}h1{{color:#4A1942}}button{{background:#4A1942;color:#F2D675;border:0;padding:10px 18px;
-font-weight:bold}}input{{padding:8px;width:100%;max-width:320px}}</style></head>
+<style>body{{font-family:system-ui,sans-serif;background:#EDE3CF;color:#2B1B24;max-width:520px;margin:24px auto;
+padding:0 16px;font-size:17px;line-height:1.45}}h1{{color:#4A1942;font-size:26px}}
+label{{display:block;margin:14px 0 4px;font-weight:600}}
+input:not([type=checkbox]){{display:block;box-sizing:border-box;width:100%;padding:12px;font-size:17px;margin-top:4px;
+border:1px solid #8a7a66;border-radius:6px;background:#fff}}
+button,.btn{{display:inline-block;box-sizing:border-box;background:#4A1942;color:#F2D675;border:0;border-radius:6px;
+padding:14px 20px;font-size:17px;font-weight:bold;margin-top:12px;text-decoration:none;text-align:center}}
+form>button,.btn{{width:100%}}.btn.alt{{background:#C9A227;color:#2B1B24}}
+button.link{{background:none;color:#4A1942;text-decoration:underline;padding:0;width:auto;font-weight:normal}}
+.err{{background:#F6D6D6;color:#8B1A1A;padding:10px;border-radius:6px;font-weight:600}}.small{{font-size:14px}}
+a{{color:#4A1942}}</style></head>
 <body><h1>{title}</h1>{body}
 <p style="margin-top:40px;font-size:90%"><a href="/account">Account</a> &middot; <a href="/terms">Terms</a>
 &middot; <a href="/privacy">Privacy</a></p></body></html>"""

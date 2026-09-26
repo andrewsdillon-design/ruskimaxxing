@@ -90,3 +90,26 @@ def test_month_and_week_dropdowns(app):
     assert app._week() == 49 and app.week_combo["values"][-1].startswith("Week 52")
     app._today()
     assert app.month_pick.get() == app.month_labels[__import__("ruskimaxxing.program").program.month_of(app._week())]
+
+
+def test_cloud_sign_in_states(app, monkeypatch):
+    import time
+    import webbrowser
+
+    def labels():
+        return [w.cget("text") for w in app.cloud_btns.winfo_children()]
+    assert "Sign in or create account" in labels()
+    s = app.store
+    s.set("cloud_link_device", "dev"), s.set("cloud_link_code", "ABCD-EFGH")
+    s.set("cloud_link_until", str(time.time() + 600))
+    app.refresh_cloud()
+    assert "Code ABCD-EFGH" in labels() and "Cancel" in labels()
+    app._cloud_cancel()
+    assert "Sign in or create account" in labels()
+    opened = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+    s.set("cloud_token", "t"), s.set("cloud_email", "me@example.com")
+    app.refresh_cloud()
+    assert "Back up now" in labels()
+    app._cloud_delete()
+    assert opened == ["https://api.ruskimaxxing.com/account/delete"]

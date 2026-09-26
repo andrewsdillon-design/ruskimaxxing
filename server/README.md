@@ -47,9 +47,10 @@ Rules that keep both sites safe:
    with a random password, runs the API with systemd, adds the nginx site, gets the HTTPS certificate and
    schedules nightly backups.
 3. **Check:** open `https://api.your-domain.com/health`. It should show `{"ok":true}`.
-4. **Point the apps at it:** in the app go to **Start / Setup → Cloud backup → Server:**
-   `https://api.your-domain.com`. To pre-fill it for everyone, set `DEFAULT_SERVER` in
-   `src/ruskimaxxing/sync.py` and publish a new release.
+4. **The apps already point at it:** `DEFAULT_SERVER` in `src/ruskimaxxing/sync.py` is
+   `https://api.ruskimaxxing.com`. In the app, **Cloud backup → Sign in or create account** opens the website in
+   the browser; people log in or sign up there, and the app finishes signing in by itself. The phone apps also get
+   a **Return to the app** button (`ruskimaxxing://` / `ruskimaxxingsupertotal://`).
 
 ### Paid storage: $20/year with Stripe (no free trial)
 Accounts are **free**. **Backing up** needs an active plan, which people buy on your website at
@@ -126,6 +127,9 @@ sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.c
 |---|---|---|
 | POST | `/api/register`, `/api/login` | `{email, password}` → `{token, email}` |
 | POST | `/api/logout` | ends this device's session |
+| POST | `/api/link/start`, `/api/link/poll` | "sign in with your browser": the app opens `/link?code=…`, then polls until done |
+| GET/POST | `/link` | website page the apps open: log in or sign up, confirm the code, connect the app |
+| GET/POST | `/signup`, `/account/register`, `/account/forgot`, `/account/delete` | website sign-up, forgot password, delete account |
 | GET | `/api/me` | account email and record counts |
 | POST | `/api/sync` | `{edition, since, changes[]}` → `{changes[], seq}` (newest edit wins) |
 | DELETE | `/api/account` | `{password}`, deletes the account and all data |

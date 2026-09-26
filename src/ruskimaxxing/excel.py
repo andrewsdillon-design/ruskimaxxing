@@ -21,6 +21,7 @@ from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 from ruskimaxxing.edition import app_name
 from ruskimaxxing.exercises import BOX_JUMP_STANDARDS, CATALOG, MAIN
@@ -115,10 +116,18 @@ def _input(cell, value=None):
 
 
 def _link(cell, text, sheet):
+    # In-workbook link via `location`. A "#Sheet!A1" string would be stored as an external
+    # URL relationship, which Excel rejects as corrupt when the sheet name has spaces.
     cell.value = text
-    cell.hyperlink = f"#'{sheet}'!A1"
+    cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'{sheet}'!A1", display=str(text))
     cell.font = LINK_FONT
     return cell
+
+
+def _show_axes(chart):
+    # openpyxl 3.1 writes axes as deleted unless told otherwise; Excel then hides them
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
 
 
 def _e1rm(w, r):
@@ -417,7 +426,7 @@ class _Book:
     def maxes_sheet(self):
         ws = self.wb.create_sheet("Maxes")
         labels = [f"Cycle {c}\n(weeks {(c - 1) * 12 + 1}-{c * 12})" for c in range(1, CYCLES + 1)]
-        _header(ws, 1, ["Exercise", "Type", "Parent lift", "Ratio", *labels, "Transition\n(weeks 49-52)"])
+        _header(ws, 1, ["Exercise", "Type", "Parent lift", "Ratio", *labels, "Transition\n(weeks 49-52)", "Source"])
         ws.row_dimensions[1].height = 32
         ws.freeze_panes = "E2"
         for name, r in self.row_of.items():
@@ -440,13 +449,15 @@ class _Book:
                 else:
                     formula = f'=IF({own}>0,ROUND({own},1),"")'
                 ws.cell(r, col, formula).number_format = "0"
+            ws.cell(r, 10, f'=IF(PRs!C{r}>0,"logged",IF($B{r}="variation","estimated",""))')
+        # same-sheet condition only (cross-sheet references in conditional formats upset older Excel)
         ws.conditional_formatting.add(
             f"E2:I{1 + len(self.row_of)}",
-            FormulaRule(formula=['AND($B2="variation",E2<>"",PRs!$C2=0)'], font=Font(italic=True, color="888888")))
+            FormulaRule(formula=['$J2="estimated"'], font=Font(italic=True, color="888888")))
         ws.cell(len(self.row_of) + 3, 1,
                 "Training max = best estimated 1RM logged before the cycle starts. Grey italics = estimated "
                 "from the parent lift x ratio (no sets logged yet).")
-        _widths(ws, [26, 10, 15, 7, 12, 12, 12, 12, 13])
+        _widths(ws, [26, 10, 15, 7, 12, 12, 12, 12, 13, 10])
 
     # -- Body ------------------------------------------------------------------------
     def body_sheet(self):
@@ -535,6 +546,8 @@ class _Book:
         body.y_axis.axId = 200
         body.y_axis.title = "Bodyweight"
         body.y_axis.crosses = "max"
+        _show_axes(strength)
+        _show_axes(body)
         strength += body
         strength.height, strength.width = 9, 18
         ws.add_chart(strength, "A12")
@@ -546,6 +559,7 @@ class _Book:
         bw.x_axis.title = "Week"
         bw.add_data(Reference(body_ws, min_col=3, min_row=3, max_row=4 + WEEKS), titles_from_data=True)
         bw.set_categories(Reference(body_ws, min_col=1, min_row=4, max_row=4 + WEEKS))
+        _show_axes(bw)
         bw.height, bw.width = 9, 18
         ws.add_chart(bw, "L3")
 
@@ -560,6 +574,8 @@ class _Book:
         lean.y_axis.axId = 300
         lean.y_axis.title = "Lean mass"
         lean.y_axis.crosses = "max"
+        _show_axes(bf)
+        _show_axes(lean)
         bf += lean
         bf.height, bf.width = 9, 18
         ws.add_chart(bf, "L22")

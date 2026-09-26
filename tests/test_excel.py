@@ -68,3 +68,16 @@ def test_every_catalog_exercise_has_a_pr_row(tmp_path):
     wb = load_workbook(build_workbook(tmp_path / "p.xlsx"))
     names = [c.value for c in wb["PRs"]["A"][1:len(CATALOG) + 1]]
     assert names == list(CATALOG)
+
+
+def test_no_external_links_excel_would_reject(tmp_path):
+    """Sheet-to-sheet links must be internal (location=...), never external URL relationships."""
+    import zipfile
+
+    path = build_workbook(tmp_path / "p.xlsx", DATA)
+    with zipfile.ZipFile(path) as z:
+        rels = [n for n in z.namelist() if n.endswith(".rels")]
+        assert not any('TargetMode="External"' in z.read(n).decode() for n in rels)
+    wb = load_workbook(path)
+    links = [c.hyperlink for ws in wb.worksheets for row in ws.iter_rows() for c in row if c.hyperlink]
+    assert len(links) > 100 and all(h.location and not h.target for h in links)

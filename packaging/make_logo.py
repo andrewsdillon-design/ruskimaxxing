@@ -97,6 +97,35 @@ def draw_logo(size=512, background=True) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
+MOBILE = Path(__file__).resolve().parent.parent / "src" / "ruskimaxxing_mobile" / "resources"
+PHONE_SIZES = (16, 20, 29, 32, 40, 48, 58, 60, 64, 72, 76, 80, 87, 96, 120, 128, 144, 152, 167, 180, 192, 256,
+               320, 480, 512, 640, 960, 1024, 1280, 1920)
+
+
+def square(size: int) -> Image.Image:
+    """Medallion on a solid purple square (app stores reject transparent corners)."""
+    img = Image.new("RGBA", (size, size), PURPLE_DARK + (255,))
+    logo = draw_logo(int(size * 0.9))
+    img.alpha_composite(logo, ((size - logo.width) // 2, (size - logo.height) // 2))
+    return img.convert("RGB")
+
+
+def phone_icons():
+    """icon-<n>.png (iOS / desktop), icon-square-<n>.png and icon-round-<n>.png (Android)."""
+    MOBILE.mkdir(parents=True, exist_ok=True)
+    for n in PHONE_SIZES:
+        sq = square(n)
+        sq.save(MOBILE / f"icon-{n}.png")
+        sq.save(MOBILE / f"icon-square-{n}.png")
+        if n in (48, 72, 96, 144, 192):  # Android launcher sizes
+            draw_logo(n).save(MOBILE / f"icon-round-{n}.png")
+    for n in (108, 162, 216, 324, 432):  # Android adaptive foreground: logo inside the 66% safe zone
+        fg = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+        logo = draw_logo(int(n * 0.66))
+        fg.alpha_composite(logo, ((n - logo.width) // 2, (n - logo.height) // 2))
+        fg.save(MOBILE / f"icon-adaptive-{n}.png")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     draw_logo(512).save(OUT / "logo.png")
@@ -104,7 +133,8 @@ def main():
     draw_logo(256).save(OUT / "icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     draw_logo(1024).save(OUT / "icon.icns")  # macOS app icon
     draw_logo(64).save(OUT / "favicon.png")
-    print(f"wrote logo.png, logo_96.png, icon.ico, icon.icns, favicon.png to {OUT}")
+    phone_icons()
+    print(f"wrote logo.png, logo_96.png, icon.ico, icon.icns, favicon.png to {OUT} and phone icons to {MOBILE}")
 
 
 if __name__ == "__main__":

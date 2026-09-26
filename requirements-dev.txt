@@ -1,3 +1,4 @@
 -e .
 pytest>=8
 pyinstaller>=6
+toga-dummy~=0.5.6  # runs the phone app tests without a phone

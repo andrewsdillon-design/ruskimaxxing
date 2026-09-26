@@ -8,23 +8,23 @@ All data lives in a local SQLite file (see storage.py).
 
 import sys
 import tkinter as tk
+from pathlib import Path
 from datetime import date, timedelta
 from tkinter import filedialog, messagebox, ttk
 
 from ruskimaxxing import __version__
+from ruskimaxxing import workout as wo
 from ruskimaxxing.edition import app_name
 from ruskimaxxing.excel import build_workbook
-from pathlib import Path
-
-from ruskimaxxing.exercises import (CATALOG, JUMP_STANDARDS, LEVELS, MAIN, STEP_HEIGHT, box_jump_targets,
+from ruskimaxxing.exercises import (CATALOG, JUMP_STANDARDS, LEVELS, MAIN, box_jump_targets,
                                    jump_level, jump_targets)
 from ruskimaxxing.prilepin import ZONES
-from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program, cycle_start,
+from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
                                    BodyWeight, LogEntry, best_e1rm, e1rm_history, new_prs,
-                                   rep_maxes, training_max)
+                                   rep_maxes)
 
 DEFAULT_INCREMENT = {"lb": 5.0, "kg": 2.5}
 INTAKE = (("name", "Name (optional)"), ("height", "Height"), ("bodyweight_start", "Starting bodyweight"),
@@ -425,83 +425,15 @@ class App(ttk.Frame):
             self.store.delete_bodyweight(week)
         self.refresh()
 
-    # -- building the workout model ----------------------------------------------------
+    # -- building the workout model (logic lives in workout.py, shared with the phone app) --
+    def _cfg(self) -> wo.Settings:
+        return wo.Settings(self.start_date, self.unit, self._increment(), _num(self.intake["height"].get()))
+
     def _session(self, week, day):
-        return next(s for s in self.sessions if s.week == week and s.day_index == day)
-
-    @staticmethod
-    def _default_reps(reps: str) -> str:
-        """'6' -> 6, '8-10' -> 8, '30-60s' -> 30, '5RM' -> 5, 'Max' -> 1."""
-        if reps == "Max":
-            return "1"
-        digits = ""
-        for ch in reps:
-            if ch.isdigit():
-                digits += ch
-            elif digits:
-                break
-        return digits
-
-    def _expected_weight(self, p, entries, cycle_start_date, reps: str) -> tuple[str, str]:
-        """(pre-filled weight, text describing where it came from)."""
-        info = CATALOG.get(p.exercise)
-        inc = self._increment()
-        if info and info.category == "plyo":
-            # like training maxes: only jumps logged before this cycle (or starting values) set the target
-            entries = [e for e in entries if e.kind == "baseline" or e.date < cycle_start_date]
-            if p.exercise == "Box Jump":
-                # train on a box you land safely (your best so far); show the next standard as the goal
-                height = _num(self.intake["height"].get())
-                best = max((e.weight for e in entries if e.exercise == "Box Jump" and e.done), default=0)
-                start_box = best or STEP_HEIGHT[self.height_unit]
-                goal = ""
-                if height:
-                    nxt = next(((lvl, t) for lvl, _, t in box_jump_targets(height, self.height_unit) if t > best), None)
-                    goal = f" - next standard: {nxt[0]} {nxt[1]:g} {self.height_unit}" if nxt else " - Elite!"
-                return f"{start_box:g}", f"best {best:g} {self.height_unit}{goal}" if best else f"start low{goal}"
-            best = max((e.weight for e in entries if e.exercise == p.exercise and e.done), default=0)
-            return (f"{best:g}", f"beat {best:g} {self.height_unit}") if best else ("", "distance")
-        if info and info.category in ("main", "variation"):
-            tm, estimated = training_max(entries, p.exercise, cycle_start_date)
-            if not tm:
-                return "", "enter a starting max"
-            note = f"TM {tm:.0f}{' (est.)' if estimated else ''}"
-            if p.is_loaded:
-                return f"{p.weight(tm, inc):g}", note
-            r = int(reps or 1)  # test set: weight you'd expect for that many reps
-            w = round(tm / (1 + r / 30) / inc) * inc if r > 1 else round(tm / inc) * inc
-            return f"{w:g}", note + " - try to beat it"
-        last = max((e for e in entries if e.exercise == p.exercise and e.done and e.weight > 0),
-                   key=lambda e: (e.date, e.id or 0), default=None)
-        return (f"{last.weight:g}", f"last time {last.weight:g} x {last.reps}") if last else ("", "pick a weight")
+        return wo.session(week, day)
 
     def _workout_model(self, week, day, use_saved=True):
-        entries = self.store.lifts()
-        s = self._session(week, day)
-        cs = cycle_start(self.start_date, s.cycle)
-        saved = {}
-        if use_saved:
-            for e in self.store.workout(week, day):
-                saved.setdefault(e.exercise, []).append(e)
-        blocks = []
-        for p in s.exercises:
-            reps = self._default_reps(p.reps)
-            weight, source = self._expected_weight(p, entries, cs, reps)
-            planned = max(p.sets, 1)
-            mine = sorted(saved.get(p.exercise, []), key=lambda e: e.set_no or 0)
-            rows = []
-            for k in range(max(planned, len(mine))):
-                e = mine[k] if k < len(mine) else None
-                rows.append({
-                    "target": f"{weight or '-'} x {reps or p.reps}" if k < planned else "extra set",
-                    "weight": (f"{e.weight:g}" if e.weight else "") if e else weight,
-                    "reps": (str(e.reps) if e.reps else "") if e else reps,
-                    "rpe": (f"{e.rpe:g}" if e.rpe else "") if e else "",
-                    "done": e.done if e else False,
-                })
-            blocks.append({"p": p, "rows": rows, "source": source, "planned": planned,
-                           "note": mine[0].note if mine else ""})
-        return blocks
+        return wo.workout_model(self.store, week, day, self._cfg(), use_saved)
 
     # -- rendering ------------------------------------------------------------------
     def _render_workout(self, blocks):
@@ -582,19 +514,13 @@ class App(ttk.Frame):
 
     def _add_set(self, bi):
         blocks = self._collect()
-        rows = blocks[bi]["rows"]
-        extra = dict(rows[-1]) if rows else {"weight": "", "reps": "", "rpe": ""}
-        extra.update(target="extra set", done=False, rpe="")
-        rows.append(extra)
+        wo.add_set(blocks, bi)
         self._render_workout(blocks)
         self._set_dirty(True)
 
     def _mark_all_done(self):
         blocks = self._collect()
-        for b in blocks:
-            for row in b["rows"]:
-                if row["reps"]:
-                    row["done"] = True
+        wo.mark_all_done(blocks)
         self._render_workout(blocks)
         self._set_dirty(True)
 
@@ -607,48 +533,17 @@ class App(ttk.Frame):
         if not self.wo_key or not self.wo_blocks:
             return
         week, day = self.wo_key
-        s = self._session(week, day)
-        when = s.date(self.start_date)
-        entries, bad = [], []
-        for b in self._collect():
-            p = b["p"]
-            kind = "test" if p.kind == "test" or p.reps == "Max" else "training"
-            for k, row in enumerate(b["rows"], start=1):
-                weight = _num(row["weight"]) or 0.0
-                reps = _num(row["reps"])
-                if row["done"] and not reps:
-                    bad.append(f"{p.exercise} set {k}")
-                entries.append(LogEntry(when, p.exercise, weight, int(reps or 0), kind, b["note"],
-                                        set_no=k, rpe=_num(row["rpe"]), done=bool(row["done"] and reps)))
+        saved, prs, bad = wo.save_workout(self.store, week, day, self._collect(), self._cfg())
         if bad and not quiet:
             messagebox.showwarning("Check reps", "These sets are ticked Done but have no reps, so they were saved "
                                    "as not done:\n" + "\n".join(bad), parent=self.root)
-        others = [e for e in self.store.lifts() if not (e.week == week and e.day == day)]
-        saved = self.store.save_workout(week, day, entries)
         self.wo_dirty = False
         done = sum(e.done for e in saved)
-        self.wo_status.config(text=f"Saved {s.day}: {done} set{'s' * (done != 1)} done")
-        prs = self._workout_prs(others, [e for e in saved if e.done])
+        self.wo_status.config(text=f"Saved {self._session(week, day).day}: {done} set{'s' * (done != 1)} done")
         self.refresh(rebuild=True)
         if prs and not quiet:
             messagebox.showinfo("New PR!", "\n".join(prs), parent=self.root)
         return prs
-
-    @staticmethod
-    def _workout_prs(others, done_sets):
-        best = {}
-        for e in done_sets:
-            plyo = CATALOG.get(e.exercise) and CATALOG[e.exercise].category == "plyo"
-            for label in new_prs(others + [e], e):
-                if plyo:
-                    if not label.startswith("1RM"):
-                        continue
-                    label = f"Best {e.weight:g}"
-                kind, value = label.rsplit(" ", 1)
-                key = (e.exercise, kind)
-                if key not in best or float(value) > best[key]:
-                    best[key] = float(value)
-        return [f"{ex}: {kind} {value:g}" for (ex, kind), value in best.items()]
 
     # ----- Progress tab -----------------------------------------------------------
     def _progress_tab(self, tab):
@@ -865,8 +760,7 @@ class App(ttk.Frame):
                            if month else "")
         for i, button in enumerate(self.day_buttons):
             s = self._session(week, i)
-            planned = sum(max(p.sets, 1) for p in s.exercises)
-            done = sum(e.done for e in self.store.workout(week, i))
+            done, planned = wo.day_progress(self.store, week, i)
             mark = "  \u2713" if done >= planned else ""
             button.config(text=f"{s.day}  |  {s.date(self.start_date):%a %b %d}  |  {done}/{planned} sets{mark}")
         key = (week, day)

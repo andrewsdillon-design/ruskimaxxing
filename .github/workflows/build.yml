@@ -87,15 +87,57 @@ jobs:
           name: ${{ env.APP }}.xlsx
           path: ${{ env.APP }}.xlsx
 
+  android:
+    # Phone app: a debug-signed APK anyone can install ("install unknown apps").
+    # Store (Play) builds need your own signing key - see README "Phone apps".
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install briefcase==0.4.5
+      - run: briefcase create android --no-input
+      - run: briefcase build android --no-input
+      - run: briefcase package android -p debug-apk --no-input
+      - run: mv dist/*.apk "$APP-Android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-Android.apk
+          path: ${{ env.APP }}-Android.apk
+
+  ios:
+    # Builds the iPhone app for the iOS Simulator (no Apple account needed) to prove it
+    # compiles. Installing on a real iPhone needs an Apple Developer account for signing.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install briefcase==0.4.5
+      - run: briefcase create iOS --no-input
+      - run: briefcase build iOS --no-input
+      - name: Zip simulator build
+        run: |
+          app=$(find build -name "*.app" -path "*iphonesimulator*" | head -1)
+          echo "Built: $app"
+          ditto -c -k --keepParent "$app" "$APP-iOS-Simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-iOS-Simulator.zip
+          path: ${{ env.APP }}-iOS-Simulator.zip
+
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
-    needs: [build, spreadsheet]
+    needs: [build, spreadsheet, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
+      - run: rm -f assets/*iOS-Simulator*  # simulator builds don't install on real iPhones
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version || github.ref_name }}

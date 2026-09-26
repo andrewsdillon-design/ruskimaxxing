@@ -375,7 +375,7 @@ class _Book:
             weeks = month_weeks(m)
             cycle = (weeks[-1] - 1) // CYCLE_WEEKS + 1 if m else 0
             where = "Baseline test (optional)" if m == 0 else (
-                f"Transition" if cycle > CYCLES else f"Cycle {cycle}")
+                "Transition" if cycle > CYCLES else f"Cycle {cycle}")
             ws.sheet_properties.tabColor = PHASE_FILLS[next(s.phase for s in self.sessions if s.week == weeks[-1])]
             ws["A1"] = f"{month_sheet(m).upper()}  -  weeks {weeks[0]}-{weeks[-1]}  -  {where}" if m else \
                 "BASELINE  -  week 0  -  optional test week (skip it if you entered starting maxes)"

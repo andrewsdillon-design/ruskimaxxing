@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ruskimaxxing"
-version = "2.1.0"
+version = "2.2.0"
 description = "Free 1-year beginner strength, mass and power program with PR tracking: Excel spreadsheet plus Windows, macOS and Linux app."
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,3 +25,32 @@ ruskimaxxing = ["assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# ---- Phone apps (BeeWare Briefcase): briefcase create/build/package android | iOS ----
+[tool.briefcase]
+project_name = "RuskiMaxxing"
+bundle = "io.github.andrewsdillondesign"
+version = "2.2.0"
+url = "https://github.com/andrewsdillon-design/ruskimaxxing"
+license = "MIT"
+license-files = ["LICENSE"]
+author = "andrewsdillon-design"
+author_email = "256809530+andrewsdillon-design@users.noreply.github.com"
+
+[tool.briefcase.app.ruskimaxxing_mobile]
+formal_name = "RuskiMaxxing"
+description = "Free 1-year strength, mass and power program with per-set logging and PR tracking."
+sources = ["src/ruskimaxxing", "src/ruskimaxxing_mobile"]
+icon = "src/ruskimaxxing_mobile/resources/icon"
+requires = []
+
+[tool.briefcase.app.ruskimaxxing_mobile.linux]
+requires = ["toga-gtk~=0.5.6"]
+
+[tool.briefcase.app.ruskimaxxing_mobile.android]
+requires = ["toga-android~=0.5.6"]
+base_theme = "Theme.MaterialComponents.Light.DarkActionBar"
+build_gradle_dependencies = ["com.google.android.material:material:1.13.0"]
+
+[tool.briefcase.app.ruskimaxxing_mobile.iOS]
+requires = ["toga-iOS~=0.5.6"]

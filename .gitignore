@@ -20,3 +20,7 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Briefcase (phone app) build output
+build/
+logs/

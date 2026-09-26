@@ -113,3 +113,17 @@ def test_cloud_sign_in_states(app, monkeypatch):
     assert "Back up now" in labels()
     app._cloud_delete()
     assert opened == ["https://api.ruskimaxxing.com/account/delete"]
+
+
+def test_update_bar(app):
+    from ruskimaxxing.updates import Update
+    app._show_update(Update("99.0.0", "https://dl/win.exe", "https://page"), asked=False)
+    assert app.update_bar.winfo_manager() == "pack"
+    texts = [w.cget("text") for w in app.update_bar.winfo_children()]
+    assert any("99.0.0" in t for t in texts) and "Download" in texts
+    next(w for w in app.update_bar.winfo_children() if w.cget("text") == "Not now").invoke()
+    assert app.update_bar.winfo_manager() == ""
+    app._show_update(Update("99.0.0", "u", "p"), asked=False)       # dismissed: stays hidden
+    assert app.update_bar.winfo_manager() == ""
+    app._show_update(None, asked=True)
+    assert "latest" in app.update_status.cget("text")

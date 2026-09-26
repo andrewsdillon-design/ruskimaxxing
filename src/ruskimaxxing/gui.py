@@ -6,6 +6,7 @@ charted against bodyweight) - Body (weekly bodyweight, monthly body fat) - Log.
 All data lives in a local SQLite file (see storage.py).
 """
 
+import os
 import sys
 import threading
 import time
@@ -26,6 +27,7 @@ from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, bui
                                   month_label, month_of, month_weeks, next_monday, week_label)
 from ruskimaxxing.storage import Store
 from ruskimaxxing.sync import Cloud, CloudError
+from ruskimaxxing.updates import check_for_update, dismiss, dismissed
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
                                    BodyWeight, LogEntry, best_e1rm, e1rm_history, new_prs,
                                    rep_maxes)
@@ -199,6 +201,9 @@ class App(ttk.Frame):
                  font=("TkDefaultFont", 10, "bold"), fg=BYZ["gold_light"], bg=BYZ["purple_dark"]).pack(anchor="w")
         tk.Label(self, text=SHOULDER_TIP, bg=BYZ["crimson"], fg=BYZ["ivory"], font=("TkDefaultFont", 9, "bold"),
                  wraplength=1100, justify="left", padx=10, pady=4).pack(fill="x")
+        tk.Label(banner, text=f"v{__version__}", fg=BYZ["gold_light"], bg=BYZ["purple_dark"]).pack(
+            side="right", anchor="s", padx=8, pady=4)
+        self.update_bar = tk.Frame(self, bg=BYZ["gold"])       # shown only when a newer version is out
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill="both", expand=True, pady=(4, 0))
         for name, builder in (("Start", self._start_tab), ("Program", self._program_tab),
@@ -212,6 +217,8 @@ class App(ttk.Frame):
         root.columnconfigure(0, weight=1)
         root.rowconfigure(0, weight=1)
         self.refresh()
+        if not os.environ.get("RUSKIMAXXING_NO_UPDATE_CHECK"):
+            self.check_updates(force=False)
 
     # ----- helpers ----------------------------------------------------------------
     @property
@@ -301,6 +308,7 @@ class App(ttk.Frame):
                                            (220, 120, 90), height=5)
         frame.pack(fill="both", expand=True, pady=(6, 0))
         self._cloud_box(left)
+        self._updates_box(left)
 
         box = ttk.LabelFrame(right, text="PR board", padding=6)
         box.pack(fill="x")
@@ -347,6 +355,50 @@ class App(ttk.Frame):
         self.refresh()
 
     # ----- cloud backup ---------------------------------------------------------
+    # ----- app updates -------------------------------------------------------------
+    def _updates_box(self, parent):
+        box = ttk.LabelFrame(parent, text="App updates", padding=6)
+        box.pack(fill="x", pady=(8, 0))
+        self.update_status = ttk.Label(box, text=f"You have version {__version__}.", foreground="#6b5a45")
+        self.update_status.pack(side="left")
+        ttk.Button(box, text="Check for updates", style="Small.TButton",
+                   command=lambda: self.check_updates(force=True)).pack(side="left", padx=8)
+
+    def check_updates(self, force=True):
+        """Look for a newer release in the background; show a bar at the top if there is one."""
+        if force:
+            self.update_status.config(text="Checking...")
+
+        def worker():
+            update = check_for_update(self.store, force=force)
+            self.root.after(0, lambda: self._show_update(update, force))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_update(self, update, asked):
+        for w in self.update_bar.winfo_children():
+            w.destroy()
+        self.update_bar.pack_forget()
+        if not update:
+            self.update_status.config(text=f"You have version {__version__}" +
+                                      (" - it's the latest." if asked else "."))
+            return
+        self.update_status.config(text=f"You have {__version__}. Version {update.version} is available.")
+        if dismissed(self.store, update) and not asked:
+            return
+        style = {"bg": BYZ["gold"], "fg": BYZ["purple_dark"], "font": ("TkDefaultFont", 10, "bold")}
+        tk.Label(self.update_bar, text=f"Update available: version {update.version} (you have {__version__})",
+                 **style).pack(side="left", padx=10, pady=3)
+        ttk.Button(self.update_bar, text="Download", style="Small.TButton",
+                   command=lambda: webbrowser.open(update.url)).pack(side="left")
+        ttk.Button(self.update_bar, text="What's new", style="Small.TButton",
+                   command=lambda: webbrowser.open(update.page)).pack(side="left", padx=4)
+
+        def later():
+            dismiss(self.store, update)
+            self.update_bar.pack_forget()
+        ttk.Button(self.update_bar, text="Not now", style="Small.TButton", command=later).pack(side="right", padx=6)
+        self.update_bar.pack(fill="x", before=self.tabs)
+
     def _cloud_box(self, parent):
         self.cloud = Cloud(self.store)
         box = ttk.LabelFrame(parent, text="3. Cloud backup (optional) - get your data back on a new device", padding=6)

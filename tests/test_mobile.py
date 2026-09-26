@@ -124,3 +124,14 @@ def test_cloud_sign_in_states(app, monkeypatch):
     assert "Back up now" in texts(app.cloud_box) and "me@example.com" in app.cloud_status.text
     app._cloud_delete(None)
     assert opened[-1] == "https://api.ruskimaxxing.com/account/delete"
+
+
+def test_update_banner(app):
+    from ruskimaxxing.updates import Update
+    app.show_update(Update("99.0.0", "https://dl/app.apk", "https://page"))
+    assert any("99.0.0" in t for t in texts(app.update_row))
+    later = next(w for w in app.update_row.children[0].children if getattr(w, "text", "") == "Later")
+    later.on_press()
+    assert not app.update_row.children
+    app.show_update(Update("99.0.0", "u", "p"))                 # dismissed: stays hidden
+    assert not app.update_row.children and "99.0.0 is out" in app.update_status.text

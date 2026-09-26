@@ -121,6 +121,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install briefcase==0.4.5
+      - name: Sign with the project's key (so new versions install over old ones)
+        # Optional repo secret ANDROID_DEBUG_KEYSTORE = base64 of a keystore (see README "Phone apps").
+        # Without it every build gets a random key, and updating means uninstalling first.
+        env:
+          ANDROID_DEBUG_KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        if: env.ANDROID_DEBUG_KEYSTORE != ''
+        run: mkdir -p ~/.android && echo "$ANDROID_DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
       - run: briefcase create android --no-input
       - run: briefcase build android --no-input
       - run: briefcase package android -p debug-apk --no-input
@@ -152,9 +159,24 @@ jobs:
           name: ${{ env.APP }}-iOS-Simulator.zip
           path: ${{ env.APP }}-iOS-Simulator.zip
 
+  version:
+    # The apps' "Check for updates" compares their built-in version with the release tag, so they must match.
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release tag must match the app version
+        run: |
+          tag="${{ inputs.version || github.ref_name }}"
+          code=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/ruskimaxxing/__init__.py)
+          project=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | sort -u)
+          echo "tag=$tag  __version__=$code  pyproject=$project"
+          [ "$tag" = "v$code" ] && [ "$project" = "$code" ] || {
+            echo "::error::Set __version__ in src/ruskimaxxing/__init__.py and both versions in pyproject.toml to ${tag#v} first"; exit 1; }
+
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
-    needs: [build, spreadsheet, android]
+    needs: [version, build, spreadsheet, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -28,7 +28,9 @@ from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, bui
                                   month_weeks,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
+from ruskimaxxing import __version__
 from ruskimaxxing.sync import Cloud, CloudError
+from ruskimaxxing.updates import check_for_update, dismiss, dismissed
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, BodyFat, BodyWeight, LogEntry,
                                    best_e1rm, e1rm_history, rep_maxes)
 
@@ -190,12 +192,15 @@ class RuskiMaxxing(toga.App):
             content=[("Workout", self._workout_tab()), ("Progress", self._progress_tab()),
                      ("PRs", self._prs_tab()), ("Body", self._body_tab()), ("Setup", self._setup_tab())],
             on_select=self._tab_changed, style=Pack(flex=1))
+        self.update_row = col()   # filled in when a newer version is out
         self.main_window = toga.MainWindow(title=app_name())
-        self.main_window.content = col(header, self.tabs, background_color=PARCHMENT, flex=1)
+        self.main_window.content = col(header, self.update_row, self.tabs, background_color=PARCHMENT, flex=1)
         self.refresh_all()
         self.main_window.show()
         if self.cloud.pending_code:     # the app was closed while signing in: keep waiting
             self._watch_sign_in()
+        if toga.platform.current_platform == "android" and not os.environ.get("RUSKIMAXXING_NO_UPDATE_CHECK"):
+            asyncio.get_event_loop().create_task(self._check_updates(force=False))
 
     # ----- helpers ----------------------------------------------------------------
     def cfg(self) -> wo.Settings:
@@ -545,6 +550,7 @@ class RuskiMaxxing(toga.App):
                                f"{z.optimal_total} optimal ({z.total_range[0]}-{z.total_range[1]})", 11))
         self.cloud_status = label(Cloud(s).status(), 10, color="#6b5a45")
         self.cloud_box = col(gap=4)
+        self.update_status = label(f"Version {__version__}", 10, color="#6b5a45", flex=1)
         tip = toga.Label(wrap(SHOULDER_TIP, 10), style=Pack(font_size=10, font_weight="bold", color=IVORY,
                                                             background_color=CRIMSON, margin=6))
         return toga.ScrollContainer(horizontal=False, content=col(
@@ -568,6 +574,8 @@ class RuskiMaxxing(toga.App):
             label("Back up to the cloud so you can log in on a new phone and get everything back.", 10),
             self.cloud_status,
             self.cloud_box,
+            section("App updates"),
+            row(self.update_status, button("Check for updates", self._check_updates_now, width=150), gap=6),
             section("Prilepin's chart"),
             prilepin,
             margin=8, gap=4))
@@ -623,6 +631,35 @@ class RuskiMaxxing(toga.App):
         message = done(result) if callable(done) else done
         if message:
             await self.info("Cloud backup", message)
+
+    # ----- updates --------------------------------------------------------------------
+    async def _check_updates_now(self, widget):
+        await self._check_updates(force=True)
+
+    async def _check_updates(self, force):
+        platform = "android" if toga.platform.current_platform == "android" else "ios"
+        if force:
+            self.update_status.text = "Checking..."
+        update = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: check_for_update(self.store, platform, force=force))
+        self.show_update(update, asked=force)
+
+    def show_update(self, update, asked=False):
+        self.update_row.clear()
+        if not update:
+            self.update_status.text = f"Version {__version__}" + (" - the latest" if asked else "")
+            return
+        self.update_status.text = f"Version {__version__} - {update.version} is out"
+        if dismissed(self.store, update) and not asked:
+            return
+
+        def later(widget):
+            dismiss(self.store, update)
+            self.update_row.clear()
+        self.update_row.add(row(label(f"Update: version {update.version}", 11, True, PURPLE_DARK, flex=1),
+                                button("Download", lambda w: open_url(update.url), width=100),
+                                button("Later", later, width=70),
+                                background_color=GOLD, margin=4, gap=6))
 
     def refresh_cloud(self):
         """Cloud section: one big Sign in button, or the waiting state, or the signed-in actions."""

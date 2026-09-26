@@ -9,7 +9,9 @@ Configuration (environment variables, see deploy/env.example):
   DATABASE_URL   postgresql+psycopg://user:pass@localhost/ruskimaxxing   (default: local SQLite)
   PUBLIC_URL     https://api.example.com      used in password-reset emails
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, MAIL_FROM   for password-reset emails
-  CONTACT_EMAIL  shown on the privacy page
+  CONTACT_EMAIL  shown on the privacy and terms pages (refund requests, questions)
+  OPERATOR_NAME  your name or business name, shown in the Terms of Service
+  GOVERNING_STATE  U.S. state whose law governs the Terms (e.g. Texas)
   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID   paid backups ($20/year) - see deploy/setup_stripe.py
   STRIPE_PORTAL_CONFIG   optional customer-portal configuration id
   COMPLIMENTARY_EMAILS   comma-separated emails that get free backups (you, friends, testers)
@@ -17,6 +19,11 @@ Configuration (environment variables, see deploy/env.example):
 Billing: with STRIPE_SECRET_KEY set, *backing up* needs an active plan. Restoring what is
 already saved always works, and nothing is deleted when a plan lapses. Without Stripe
 keys the server is free for everyone.
+
+Consumer protections (U.S. automatic-renewal laws - FTC ROSCA, California and other state ARLs):
+clear renewal terms and a required consent checkbox before checkout, a confirmation email after
+purchase, a reminder email 30-45 days before each yearly renewal (python -m ruskimaxxing_cloud.reminders,
+run daily by cron), cancel online at any time, and a full refund of any charge within 30 days.
 """
 
 import hashlib
@@ -25,6 +32,7 @@ import json
 import os
 import secrets
 import smtplib
+import time
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
@@ -42,9 +50,13 @@ KINDS = ("lift", "bodyweight", "bodyfat", "setting")
 SESSION_DAYS = 180
 WEB_SESSION_DAYS = 30
 PLAN_PRICE = "$20/year"
+PLAN_PRICE_PLAIN = "$20"
 PLAN_GRACE = timedelta(days=3)          # renewals can take a day or two to go through
 ACTIVE_STATUSES = ("active", "trialing", "past_due")
 COOKIE = "rmx_session"
+REFUND_DAYS = 30                        # full refund of any charge (first year or renewal) within 30 days
+REMINDER_WINDOW = (30, 45)              # renewal reminder goes out 30-45 days before each yearly renewal
+TERMS_UPDATED = "September 26, 2026"
 MAX_CHANGES = 5000
 ph = PasswordHasher()
 
@@ -72,6 +84,8 @@ class User(Base):
     stripe_customer: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     plan_status: Mapped[str] = mapped_column(String(30), default="")
     plan_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # renewal date last reminded
 
 
 class LoginSession(Base):
@@ -115,7 +129,8 @@ def add_missing_columns(engine) -> None:
     """Tiny forward-only migration: add columns introduced after a table was first created."""
     have = {c["name"] for c in inspect(engine).get_columns("users")}
     wanted = {"stripe_customer": "VARCHAR(100)", "plan_status": "VARCHAR(30) DEFAULT ''",
-              "plan_until": "TIMESTAMP"}
+              "plan_until": "TIMESTAMP", "cancel_at_period_end": "BOOLEAN DEFAULT FALSE",
+              "reminder_for": "TIMESTAMP"}
     with engine.begin() as conn:
         for name, decl in wanted.items():
             if name not in have:
@@ -158,7 +173,8 @@ def stripe_checkout(user, base: str) -> str:
     stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
     params = {"mode": "subscription", "line_items": [{"price": os.environ["STRIPE_PRICE_ID"], "quantity": 1}],
               "client_reference_id": str(user.id), "subscription_data": {"metadata": {"user_id": str(user.id)}},
-              "success_url": f"{base}/account?paid=1", "cancel_url": f"{base}/account"}
+              "success_url": f"{base}/account?paid=1", "cancel_url": f"{base}/account",
+              "custom_text": {"submit": {"message": RENEWAL_TERMS.format(base=base)}}}
     if user.stripe_customer:
         params["customer"] = user.stripe_customer
     else:
@@ -174,6 +190,25 @@ def stripe_portal(user, base: str) -> str:
     if os.environ.get("STRIPE_PORTAL_CONFIG"):
         params["configuration"] = os.environ["STRIPE_PORTAL_CONFIG"]
     return stripe.billing_portal.Session.create(**params).url
+
+
+def stripe_refund_latest(user) -> bool:
+    """Refund the latest charge in full if it's within REFUND_DAYS, and end the plan now.
+
+    Returns False (and changes nothing) when there's no charge from the last REFUND_DAYS to refund."""
+    import stripe
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+    charges = stripe.Charge.list(customer=user.stripe_customer, limit=1).data
+    if not charges:
+        return False
+    charge = charges[0]
+    if not charge.paid or charge.refunded or charge.created < time.time() - REFUND_DAYS * 86400:
+        return False
+    stripe.Refund.create(charge=charge.id)
+    for sub in stripe.Subscription.list(customer=user.stripe_customer, status="all", limit=10).data:
+        if sub.status not in ("canceled", "incomplete_expired"):
+            stripe.Subscription.cancel(sub.id)
+    return True
 
 
 def stripe_event(payload: bytes, signature: str) -> dict:
@@ -346,7 +381,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(403, "Bad origin")
 
     @app.get("/account", response_class=HTMLResponse)
-    def account(request: Request, paid: int = 0, rmx_session: str | None = Cookie(default=None),
+    def account(request: Request, paid: int = 0, msg: str = "", error: int = 0, rmx_session: str | None = Cookie(default=None),
                 s: Session = Depends(db)):
         user = web_user(s, rmx_session)
         if not user:
@@ -363,18 +398,32 @@ def create_app(database_url: str | None = None) -> FastAPI:
             status = "<p><b>Cloud backup is free for your account.</b></p>"
             actions = ""
         elif info["active"]:
-            status = f"<p><b>Plan active</b> - renews or ends {info['until']}.</p>"
+            if user.cancel_at_period_end:
+                status = (f"<p><b>Plan active - cancelled.</b> It won't renew. Backups stay on until "
+                          f"{info['until']}.</p>")
+            else:
+                status = (f"<p><b>Plan active.</b> Renews automatically on {info['until']} for {PLAN_PRICE_PLAIN} "
+                          f"unless you cancel before then.</p>")
             actions = ('<form method="post" action="/account/manage"><button>Manage billing / cancel</button>'
                        '</form>' if user.stripe_customer else "")
         else:
             status = (f"<p><b>No active plan.</b> Backups are paused; your saved data is safe and can still be "
                       f"restored in the app.</p><p>Cloud backup: <b>{PLAN_PRICE}</b>.</p>")
-            actions = f'<form method="post" action="/account/subscribe"><button>Subscribe - {PLAN_PRICE}</button></form>'
+            actions = subscribe_form(public_url(request), error)
             if user.stripe_customer:
                 actions += '<form method="post" action="/account/manage"><p><button>Billing history</button></p></form>'
+        if info["billing"] and not info["complimentary"] and user.stripe_customer:
+            actions += (f'<form method="post" action="/account/refund" onsubmit="return confirm(\'Refund your latest '
+                        f'payment in full and end your plan now?\')"><p><button>Request a full refund</button><br>'
+                        f'<small>Any payment made in the last {REFUND_DAYS} days, first year or renewal.</small></p>'
+                        f'</form>')
         thanks = "<p><b>Thanks! Your payment went through.</b> It can take a minute to show here.</p>" if paid else ""
+        notes = {"refunded": f"<p><b>Refund issued.</b> It goes back to your original payment method, usually "
+                             f"within 5-10 business days. Your plan has ended; your saved data is still here.</p>",
+                 "norefund": f"<p><b>No payment from the last {REFUND_DAYS} days to refund.</b> Questions about "
+                             f"a charge? Email {html.escape(contact_email())}.</p>"}
         return page("Your RuskiMaxxing account", f"""
-            <p>Signed in as {html.escape(user.email)}</p>{thanks}{status}{actions}
+            <p>Signed in as {html.escape(user.email)}</p>{thanks}{notes.get(msg, "")}{status}{actions}
             <form method="post" action="/account/logout"><p><button>Log out</button></p></form>""")
 
     @app.post("/account/login")
@@ -409,15 +458,35 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return resp
 
     @app.post("/account/subscribe")
-    def account_subscribe(request: Request, rmx_session: str | None = Cookie(default=None),
-                          s: Session = Depends(db)):
+    def account_subscribe(request: Request, agree: str = Form(default=""),
+                          rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
         same_origin(request)
         user = web_user(s, rmx_session)
         if not user:
             return RedirectResponse("/account", status_code=303)
         if not billing_on() or plan_active(user):
             return RedirectResponse("/account", status_code=303)
+        if agree != "yes":  # express consent to the automatic-renewal terms is required before charging
+            return RedirectResponse("/account?error=1", status_code=303)
         return RedirectResponse(stripe_checkout(user, public_url(request)), status_code=303)
+
+    @app.post("/account/refund")
+    def account_refund(request: Request, rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user or not user.stripe_customer or not billing_on():
+            return RedirectResponse("/account", status_code=303)
+        if not stripe_refund_latest(user):
+            return RedirectResponse("/account?msg=norefund", status_code=303)
+        user.plan_status, user.plan_until, user.cancel_at_period_end = "canceled", utcnow(), False
+        s.commit()
+        if mail_on():
+            send_mail(user.email, "Your RuskiMaxxing Cloud refund",
+                      f"We've refunded your latest RuskiMaxxing Cloud Backup payment in full. It goes back to your "
+                      f"original payment method, usually within 5-10 business days.\n\nYour plan has ended and "
+                      f"won't renew. Your saved data is still there and can be restored in the app.\n\n"
+                      f"Questions: {contact_email()}")
+        return RedirectResponse("/account?msg=refunded", status_code=303)
 
     @app.post("/account/manage")
     def account_manage(request: Request, rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
@@ -440,6 +509,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
             user = s.get(User, int(obj.get("client_reference_id") or 0))
             if user and obj.get("customer"):
                 user.stripe_customer = obj["customer"]
+                if mail_on():
+                    send_mail(user.email, "Your RuskiMaxxing Cloud Backup plan",
+                              PURCHASE_EMAIL.format(base=public_url(request), contact=contact_email(),
+                                                    days=REFUND_DAYS))
         elif kind in ("customer.subscription.created", "customer.subscription.updated",
                       "customer.subscription.deleted"):
             user_id = ((obj.get("metadata") or {}).get("user_id"))
@@ -450,6 +523,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 user.stripe_customer = user.stripe_customer or obj.get("customer")
                 user.plan_status = "canceled" if kind.endswith("deleted") else obj.get("status", "")
                 user.plan_until = period_end(obj) or user.plan_until
+                user.cancel_at_period_end = bool(obj.get("cancel_at_period_end") or obj.get("cancel_at"))
         s.commit()
         return {"received": True}
 
@@ -457,7 +531,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.post("/api/password-reset")
     def password_reset(body: ResetRequest, s: Session = Depends(db)):
         user = s.scalar(select(User).where(User.email == body.email.strip().lower()))
-        if user and os.environ.get("SMTP_HOST"):
+        if user and mail_on():
             token = secrets.token_urlsafe(32)
             s.add(ResetToken(token_hash=digest(token), user_id=user.id, expires=utcnow() + timedelta(hours=1)))
             s.commit()
@@ -492,11 +566,69 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
-        contact = html.escape(os.environ.get("CONTACT_EMAIL", "the site owner"))
+        contact = html.escape(contact_email())
         return page("Privacy policy", PRIVACY.format(contact=contact, host=html.escape(request.url.hostname or "")))
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms(request: Request):
+        return page("Terms of Service", terms_html(public_url(request)))
 
     app.state.engine = engine
     return app
+
+
+def contact_email() -> str:
+    return os.environ.get("CONTACT_EMAIL", "") or "the site owner"
+
+
+def mail_on() -> bool:
+    return bool(os.environ.get("SMTP_HOST"))
+
+
+def send_renewal_reminders(engine, now: datetime | None = None) -> int:
+    """Email everyone whose plan renews in 30-45 days (once per renewal). Run daily; returns emails sent.
+
+    Several U.S. states require a notice like this before an automatic yearly renewal."""
+    now = now or utcnow()
+    early, late = now + timedelta(days=REMINDER_WINDOW[1]), now
+    sent = 0
+    with Session(engine) as s:
+        users = s.scalars(select(User).where(User.plan_status == "active", User.plan_until.is_not(None),
+                                             User.plan_until <= early, User.plan_until > late)).all()
+        for user in users:
+            if user.cancel_at_period_end or complimentary(user) or user.reminder_for == user.plan_until:
+                continue
+            send_mail(user.email, "Your RuskiMaxxing Cloud Backup plan renews soon",
+                      REMINDER_EMAIL.format(date=user.plan_until.strftime("%B %d, %Y").replace(" 0", " "),
+                                            price=PLAN_PRICE_PLAIN, base=public_url(), contact=contact_email(),
+                                            days=REFUND_DAYS))
+            user.reminder_for = user.plan_until
+            s.commit()
+            sent += 1
+    return sent
+
+
+def subscribe_form(base: str, error: int = 0) -> str:
+    """Subscribe button with the renewal terms right next to it and a required consent checkbox."""
+    warn = "<p style='color:#8B1A1A'><b>Please tick the box to agree to the renewal terms.</b></p>" if error else ""
+    return f"""<form method="post" action="/account/subscribe">
+      <div style="border:2px solid #4A1942;padding:10px 14px;background:#F6EEDC">
+      <p><b>Cloud Backup: {PLAN_PRICE_PLAIN} per year, renews automatically.</b></p>
+      <ul><li>You're charged {PLAN_PRICE_PLAIN} (plus any sales tax) today, then {PLAN_PRICE_PLAIN} every year on
+      the same date <b>until you cancel</b>.</li>
+      <li>We email you 30-45 days before each renewal.</li>
+      <li>Cancel anytime on this page (Manage billing / cancel). Backups stay on until the end of the year you paid for.</li>
+      <li><b>Full refund of any payment within {REFUND_DAYS} days</b>, first year or renewal. No questions asked.</li></ul>
+      {warn}<p><label><input type="checkbox" name="agree" value="yes" required style="width:auto">
+      I agree to the automatic yearly renewal and the <a href="/terms">Terms of Service</a>.</label></p>
+      <p><button>Subscribe - {PLAN_PRICE}</button></p></div></form>"""
+
+
+def terms_html(base: str) -> str:
+    operator = html.escape(os.environ.get("OPERATOR_NAME", "") or "the operator of this site")
+    state = html.escape(os.environ.get("GOVERNING_STATE", "") or "the U.S. state where the operator is located")
+    return TERMS.format(operator=operator, state=state, contact=html.escape(contact_email()), base=base,
+                        price=PLAN_PRICE_PLAIN, days=REFUND_DAYS, updated=TERMS_UPDATED)
 
 
 def send_mail(to: str, subject: str, text: str) -> None:
@@ -517,7 +649,9 @@ def page(title: str, body: str) -> str:
 <style>body{{font-family:system-ui,sans-serif;background:#EDE3CF;color:#2B1B24;max-width:640px;margin:40px auto;
 padding:0 16px}}h1{{color:#4A1942}}button{{background:#4A1942;color:#F2D675;border:0;padding:10px 18px;
 font-weight:bold}}input{{padding:8px;width:100%;max-width:320px}}</style></head>
-<body><h1>{title}</h1>{body}</body></html>"""
+<body><h1>{title}</h1>{body}
+<p style="margin-top:40px;font-size:90%"><a href="/account">Account</a> &middot; <a href="/terms">Terms</a>
+&middot; <a href="/privacy">Privacy</a></p></body></html>"""
 
 
 PRIVACY = """
@@ -542,7 +676,145 @@ and never one person's log on its own.</li></ul>
 Delete account). Deletion is immediate and permanent.</li>
 <li>Your data also stays on your own device; the app works without an account.</li>
 <li>If your plan ends, backups pause but nothing is deleted - you can still restore, or delete it yourself.</li></ul>
-<p>Questions: {contact}.</p>
+<p>See also the <a href="/terms">Terms of Service</a>. Questions: {contact}.</p>
+"""
+
+TERMS = """
+<p><i>Last updated {updated}</i></p>
+<p>These Terms cover the RuskiMaxxing Cloud service at {base} ("the Service"), run by {operator} ("we", "us").
+The RuskiMaxxing apps and spreadsheets are free. Accounts are free. The only paid part is the optional
+<b>Cloud Backup</b> plan described below. The Service is offered to people in the United States. By creating an
+account or subscribing you agree to these Terms and to our <a href="/privacy">Privacy Policy</a>.</p>
+
+<h2>1. Who can use it</h2>
+<p>You must be at least 13 years old. If you're under 18, a parent or guardian must agree to these Terms for you
+and approve any purchase. We don't knowingly collect data from children under 13; if you believe we have, email
+{contact} and we'll delete it.</p>
+
+<h2>2. Training and health</h2>
+<p>RuskiMaxxing is general strength-training information, <b>not medical advice</b>. Lifting, maximal testing and
+plyometrics carry a real risk of injury. Check with a doctor before starting, especially if you have any medical
+condition or injury. Use proper technique, spotters and safety equipment, and stop if you feel pain, dizziness or
+chest discomfort. You train at your own risk and are responsible for your own health decisions.</p>
+
+<h2>3. Your account</h2>
+<p>Keep your password private; you're responsible for activity on your account. Use a real email address you
+check: it's how you reset your password and how we send billing notices.</p>
+
+<h2>4. Cloud Backup plan: price and automatic renewal</h2>
+<ul>
+<li><b>Price:</b> {price} per year, plus any sales tax that applies where you live.</li>
+<li><b>Automatic renewal:</b> your plan <b>renews automatically every year</b> on the date you subscribed, and we
+charge the payment method on file {price} (plus tax) each year <b>until you cancel</b>. By subscribing, you
+authorize these recurring yearly charges.</li>
+<li><b>No free trial.</b> You're charged when you subscribe.</li>
+<li><b>Reminder:</b> we email you 30 to 45 days before each renewal with the date, the amount and how to cancel.</li>
+<li><b>Price changes:</b> we'll email you at least 30 days before a new price applies to your renewal, so you can
+cancel first.</li>
+<li>Payments are processed by Stripe. We never see or store your full card number.</li>
+</ul>
+
+<h2>5. Cancel anytime, online</h2>
+<p>Log in at <a href="/account">{base}/account</a> and choose <b>Manage billing / cancel</b>. No phone call, no
+form to mail. You can also email {contact}. Cancelling stops all future renewals. Your backups stay on until the
+end of the year you've already paid for, and then pause.</p>
+
+<h2>6. Refunds: 30-day money-back guarantee</h2>
+<ul>
+<li><b>Full refund of any payment within {days} days</b> of that payment: your first payment <i>or</i> any
+yearly renewal. No reason needed.</li>
+<li>To get one, use <b>Request a full refund</b> at <a href="/account">{base}/account</a> (instant), or email
+{contact} from your account's email address.</li>
+<li>Refunds go back to the original payment method, usually within 5-10 business days depending on your bank.
+When a payment is refunded, that plan year ends and the plan won't renew.</li>
+<li>After {days} days, payments aren't refundable and unused time isn't prorated, except: (a) if we shut down the
+Service, or close your account when you haven't broken these Terms, we'll refund the unused part of your year; and
+(b) any refund the law requires.</li>
+<li>If you think you were charged by mistake, email {contact} and we'll fix it.</li>
+</ul>
+
+<h2>7. When a plan ends</h2>
+<p>Backups pause, but <b>nothing is deleted</b>: you can still restore your saved data in the app at any time. If
+we ever decide to remove data from accounts that have been inactive for a long time, we'll email you at least 60
+days first. You can delete your account and all your data yourself at any time in the app (Cloud backup &rarr;
+Delete account).</p>
+
+<h2>8. Your data</h2>
+<p>Your training data is yours. You let us store and process it only to run the Service, as described in the
+<a href="/privacy">Privacy Policy</a> (including the combined, de-identified use it explains). We don't sell it.</p>
+
+<h2>9. Acceptable use</h2>
+<p>Don't access other people's accounts, try to break or overload the Service, use it to store anything other than
+your own training data, or use it for anything illegal. We may suspend accounts that do.</p>
+
+<h2>10. Availability and backups</h2>
+<p>We work to keep the Service running and back up its database every night, but it may sometimes be down for
+maintenance or problems outside our control. The apps keep a full copy of your data on your device, so you can
+keep training while offline.</p>
+
+<h2>11. Open-source software</h2>
+<p>The RuskiMaxxing apps and this server's code are free, open-source software under the MIT License. These Terms
+cover the hosted Service we run, not your use of the code. The RuskiMaxxing name and eagle logo aren't licensed
+for others to use as their own brand.</p>
+
+<h2>12. Disclaimer</h2>
+<p>To the extent the law allows, the Service is provided "as is" and "as available", without warranties of any
+kind, including merchantability, fitness for a particular purpose and non-infringement.</p>
+
+<h2>13. Limit of liability</h2>
+<p>To the extent the law allows, we aren't liable for indirect, incidental, special or consequential damages,
+or for lost data or profits, and our total liability for any claim about the Service is limited to the amount
+you paid us in the 12 months before the claim. Some states don't allow some of these limits, so they may not
+apply to you.</p>
+
+<h2>14. Ending the agreement</h2>
+<p>You can stop using the Service and delete your account at any time. We may suspend or close accounts that
+break these Terms. If we close your account without you having broken them, we'll refund the unused part of your
+plan year.</p>
+
+<h2>15. Changes to these Terms</h2>
+<p>If we make a material change, we'll email account holders at least 30 days before it takes effect and update
+the date above. If you don't agree, you can cancel, and the 30-day refund in section 6 still applies to your
+latest payment.</p>
+
+<h2>16. Law and disputes</h2>
+<p>These Terms are governed by the laws of {state} and applicable U.S. federal law. Please email {contact} first
+so we can try to sort out any problem informally. Either of us may bring a claim in small-claims court if it
+qualifies. Nothing in these Terms takes away rights you have under consumer-protection laws that can't be waived.</p>
+
+<h2>17. Contact</h2>
+<p>{contact}</p>
+"""
+
+RENEWAL_TERMS = ("Your plan renews automatically every year at $20 until you cancel. Cancel anytime at "
+                 "{base}/account. Full refund of any payment within 30 days.")
+
+PURCHASE_EMAIL = """Thanks for subscribing to RuskiMaxxing Cloud Backup.
+
+Your plan: $20 per year (plus any sales tax), renewing automatically every year on the date you
+subscribed until you cancel. We'll email you 30-45 days before each renewal.
+
+How to cancel: log in at {base}/account and choose "Manage billing / cancel". Cancelling stops
+future renewals; backups stay on until the end of the year you've paid for.
+
+Refunds: you can get a full refund of any payment within {days} days of that payment, no questions
+asked. Use "Request a full refund" at {base}/account or email {contact}.
+
+Terms of Service: {base}/terms
+"""
+
+REMINDER_EMAIL = """Your RuskiMaxxing Cloud Backup plan renews automatically on {date} for {price}
+(plus any sales tax) on the card you have on file.
+
+Nothing to do if you want to keep backing up.
+
+To cancel before then: log in at {base}/account and choose "Manage billing / cancel". Your backups stay
+on until {date} and your saved data is never deleted when a plan ends.
+
+If you forget and are charged, you can still get a full refund within {days} days of the renewal:
+"Request a full refund" at {base}/account, or email {contact}.
+
+Terms of Service: {base}/terms
 """
 
 app = create_app() if os.environ.get("RUSKIMAXXING_CLOUD_AUTOSTART", "1") == "1" else None

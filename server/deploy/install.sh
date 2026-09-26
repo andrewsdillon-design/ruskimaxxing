@@ -78,6 +78,11 @@ echo "==> Nightly backups"
 install -m 700 "$HERE/backup.sh" /usr/local/sbin/ruskimaxxing-backup
 ( crontab -l 2>/dev/null | grep -v ruskimaxxing-backup; echo "17 3 * * * /usr/local/sbin/ruskimaxxing-backup" ) | crontab -
 
+echo "==> Daily renewal-reminder emails (required before yearly auto-renewals)"
+install -m 700 "$HERE/reminders.sh" /usr/local/sbin/ruskimaxxing-reminders
+( crontab -l 2>/dev/null | grep -v ruskimaxxing-reminders; \
+  echo "41 15 * * * /usr/local/sbin/ruskimaxxing-reminders >> /var/log/ruskimaxxing-reminders.log 2>&1" ) | crontab -
+
 sleep 2
 curl -fsS "http://127.0.0.1:8110/health" >/dev/null && echo "==> Done. Server is up: https://$DOMAIN/health" \
   || { echo "Service didn't answer - see: journalctl -u ruskimaxxing-cloud -n 50"; exit 1; }

@@ -79,10 +79,27 @@ Setup (one time):
 People manage or cancel their plan from the same account page (**Manage billing / cancel** opens Stripe's
 customer portal). Leave `STRIPE_SECRET_KEY` empty and backups are free for everyone.
 
-### Password-reset emails
+### Terms, refunds and renewal reminders (U.S. auto-renewal rules)
+Set `OPERATOR_NAME` (you or your business) and `GOVERNING_STATE` (e.g. `Texas`) in `/etc/ruskimaxxing-cloud.env`;
+they fill in the Terms of Service at `/terms`. What's built in, following the FTC's ROSCA rules and the stricter
+state automatic-renewal laws (California and others):
+- **Before paying:** the price, "renews every year until you cancel", how to cancel and the refund policy are shown
+  right next to the Subscribe button, and a **required checkbox** records consent. Stripe Checkout repeats it.
+- **After paying:** a confirmation email with the renewal terms and how to cancel.
+- **Every renewal:** a reminder email **30-45 days before** the charge (`/usr/local/sbin/ruskimaxxing-reminders`,
+  daily cron). Needs SMTP, see below.
+- **Cancel online anytime** (account page -> Manage billing / cancel). Backups stay on until the paid year ends.
+- **30-day money-back guarantee:** full refund of *any* payment (first year or renewal) within 30 days. It's
+  self-serve: **Request a full refund** on the account page refunds through Stripe right away and ends the plan.
+  After 30 days there are no refunds, except a prorated one if you shut the service down.
+- Nothing in the apps mentions price. The Terms page does, and it's only linked from the website.
+
+Review `/terms` before launch. It's a careful template, not legal advice.
+
+### Password-reset and billing emails
 Edit `/etc/ruskimaxxing-cloud.env` and fill in `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM`
 from any email provider (Brevo, Mailgun, Postmark, Amazon SES, your own mail server). Then run
-`sudo systemctl restart ruskimaxxing-cloud`. Without SMTP settings, "Forgot password" doesn't send anything.
+`sudo systemctl restart ruskimaxxing-cloud`. Without SMTP settings, no emails go out: no password resets, and no renewal reminders, which **you need before charging**.
 
 ### Backups
 `/usr/local/sbin/ruskimaxxing-backup` runs nightly and keeps 14 days in `/var/backups/ruskimaxxing`.
@@ -115,7 +132,8 @@ sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.c
 | POST | `/api/password-reset` | emails a one-hour reset link (`/reset?token=…`) |
 | GET/POST | `/account` | website account page: plan status, subscribe, manage billing |
 | POST | `/stripe/webhook` | Stripe plan updates (signature-verified) |
-| GET | `/health`, `/privacy` | health check, privacy policy |
+| POST | `/account/refund` | full refund of the latest payment if it's within 30 days |
+| GET | `/health`, `/privacy`, `/terms` | health check, privacy policy, terms of service |
 
 ## Develop / test locally
 ```bash

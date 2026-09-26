@@ -106,10 +106,15 @@ def test_account_page_login_subscribe_manage(client):
     assert r.status_code == 303 and "rmx_session" in r.headers["set-cookie"]
     page = client.get("/account").text
     assert "No active plan" in page and "Subscribe - $20/year" in page
+    # the renewal terms must be agreed to before checkout
     r = client.post("/account/subscribe", follow_redirects=False)
+    assert r.headers["location"] == "/account?error=1"
+    assert "tick the box" in client.get(r.headers["location"]).text
+    r = client.post("/account/subscribe", data={"agree": "yes"}, follow_redirects=False)
     assert r.headers["location"] == "https://checkout.stripe.test/1"
     # cross-site form posts are refused
-    assert client.post("/account/subscribe", headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post("/account/subscribe", data={"agree": "yes"},
+                       headers={"Origin": "https://evil.example"}).status_code == 403
     webhook(client, {"id": "e", "object": "event", "type": "checkout.session.completed",
                      "data": {"object": {"client_reference_id": "1", "customer": "cus_1"}}})
     webhook(client, subscription(1))

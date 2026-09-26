@@ -1,5 +1,6 @@
 """Local SQLite storage for settings, lift log and body measurements."""
 
+import dataclasses
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -14,7 +15,8 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS lifts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL, exercise TEXT NOT NULL, weight REAL NOT NULL, reps INTEGER NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'training', note TEXT NOT NULL DEFAULT '');
+    kind TEXT NOT NULL DEFAULT 'training', note TEXT NOT NULL DEFAULT '',
+    week INTEGER, day INTEGER, set_no INTEGER, rpe REAL, done INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS bodyweight (week INTEGER PRIMARY KEY, date TEXT NOT NULL, weight REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS bodyfat (
     month INTEGER PRIMARY KEY, date TEXT NOT NULL, percent REAL NOT NULL,
@@ -28,6 +30,16 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.path)
         self.db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        """Add per-set columns to databases created by older versions."""
+        have = {row[1] for row in self.db.execute("PRAGMA table_info(lifts)")}
+        with self.db:
+            for col, decl in (("week", "INTEGER"), ("day", "INTEGER"), ("set_no", "INTEGER"),
+                              ("rpe", "REAL"), ("done", "INTEGER NOT NULL DEFAULT 1")):
+                if col not in have:
+                    self.db.execute(f"ALTER TABLE lifts ADD COLUMN {col} {decl}")
 
     def close(self):
         self.db.close()
@@ -42,20 +54,40 @@ class Store:
             self.db.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, str(value)))
 
     # lifts
+    _COLS = "date, exercise, weight, reps, kind, note, week, day, set_no, rpe, done"
+
+    def _insert(self, e: LogEntry) -> LogEntry:
+        cur = self.db.execute(
+            f"INSERT INTO lifts ({self._COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (e.date.isoformat(), e.exercise, e.weight, e.reps, e.kind, e.note,
+             e.week, e.day, e.set_no, e.rpe, int(e.done)))
+        return dataclasses.replace(e, id=cur.lastrowid)
+
     def add_lift(self, entry: LogEntry) -> LogEntry:
         with self.db:
-            cur = self.db.execute(
-                "INSERT INTO lifts (date, exercise, weight, reps, kind, note) VALUES (?,?,?,?,?,?)",
-                (entry.date.isoformat(), entry.exercise, entry.weight, entry.reps, entry.kind, entry.note))
-        return LogEntry(entry.date, entry.exercise, entry.weight, entry.reps, entry.kind, entry.note, cur.lastrowid)
+            return self._insert(entry)
 
     def delete_lift(self, entry_id: int) -> None:
         with self.db:
             self.db.execute("DELETE FROM lifts WHERE id=?", (entry_id,))
 
+    def _rows(self, where: str = "", args=()) -> list[LogEntry]:
+        rows = self.db.execute(f"SELECT id, {self._COLS} FROM lifts {where} ORDER BY date, id", args)
+        return [LogEntry(date.fromisoformat(d), ex, w, r, k, n, i, wk, dy, sn, rpe, bool(done))
+                for i, d, ex, w, r, k, n, wk, dy, sn, rpe, done in rows]
+
     def lifts(self) -> list[LogEntry]:
-        rows = self.db.execute("SELECT id, date, exercise, weight, reps, kind, note FROM lifts ORDER BY date, id")
-        return [LogEntry(date.fromisoformat(d), ex, w, r, k, n, i) for i, d, ex, w, r, k, n in rows]
+        return self._rows()
+
+    def workout(self, week: int, day: int) -> list[LogEntry]:
+        """Every set saved for one program session, done or not."""
+        return self._rows("WHERE week=? AND day=?", (week, day))
+
+    def save_workout(self, week: int, day: int, entries: list[LogEntry]) -> list[LogEntry]:
+        """Replace everything saved for one session with `entries`."""
+        with self.db:
+            self.db.execute("DELETE FROM lifts WHERE week=? AND day=?", (week, day))
+            return [self._insert(dataclasses.replace(e, week=week, day=day)) for e in entries]
 
     # body - bodyweight is one value per program week, body fat one per month
     def set_bodyweight(self, bw: BodyWeight) -> None:

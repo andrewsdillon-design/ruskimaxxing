@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from ruskimaxxing.edition import is_supertotal
-from ruskimaxxing.exercises import CATALOG, MAIN, OLY, ROTATION
+from ruskimaxxing.exercises import CATALOG, MAIN, OLY, PLYO_GUIDE, ROTATION
 from ruskimaxxing.prilepin import load, zone_for
 
 WEEKS = 52
@@ -63,30 +63,33 @@ BLOCKS = (
 DELOAD = {4: 60.0, 8: 65.0}  # cycle week -> %TM
 TAPER_WEEK, TEST_WEEK = 11, 12
 
-SLOTS = {"@squat": "Squat", "@bench": "Bench Press", "@deadlift": "Deadlift", "@olympic": "Olympic"}
+SLOTS = {"@squat": "Squat", "@bench": "Bench Press", "@deadlift": "Deadlift", "@olympic": "Olympic",
+         "@plyo": "Plyo"}
+# Jump tested (and baselined) each day of a test week
+TEST_PLYO = ("Box Jump", "Broad Jump", "Vertical Jump")
 
 if is_supertotal():
     DAYS = (
-        ("Day 1 - Heavy", "Box Jump",
+        ("Day 1 - Heavy", ("Box Jump",),
          [("Snatch", "heavy"), ("Squat", "heavy"), ("Bench Press", "heavy")],
          [("Barbell Row", "8-10"), ("Face Pull", "12-15")]),
-        ("Day 2 - Light", "Broad Jump",
+        ("Day 2 - Light", ("Broad Jump", "Med Ball Chest Pass"),
          [("Clean & Jerk", "heavy"), ("Squat", "light"), ("Overhead Press", "medium"), ("Deadlift", "medium")],
          [("Chin-up", "6-10"), ("Plank", "30-60s")]),
-        ("Day 3 - Variations", "Box Jump",
+        ("Day 3 - Variations", ("@plyo",),
          [("@olympic", "medium"), ("@squat", "medium"), ("@bench", "medium"), ("@deadlift", "light")],
          [("Incline Dumbbell Press", "8-12"), ("Triceps Pushdown", "10-15")]),
     )
     TESTED = {0: {"Snatch", "Squat", "Bench Press"}, 1: {"Clean & Jerk", "Deadlift", "Overhead Press"}}
 else:
     DAYS = (
-        ("Day 1 - Heavy", "Box Jump",
+        ("Day 1 - Heavy", ("Box Jump",),
          [("Squat", "heavy"), ("Bench Press", "heavy")],
          [("Barbell Row", "8-10"), ("Face Pull", "12-15"), ("Dumbbell Curl", "10-12")]),
-        ("Day 2 - Light", "Broad Jump",
+        ("Day 2 - Light", ("Broad Jump", "Med Ball Chest Pass"),
          [("Squat", "light"), ("Overhead Press", "heavy"), ("Deadlift", "medium")],
          [("Chin-up", "6-10"), ("Back Extension", "10-15"), ("Plank", "30-60s")]),
-        ("Day 3 - Variations", "Box Jump",
+        ("Day 3 - Variations", ("@plyo",),
          [("@squat", "medium"), ("@bench", "medium"), ("@deadlift", "light")],
          [("Incline Dumbbell Press", "8-12"), ("One-Arm Dumbbell Row", "10-12"), ("Triceps Pushdown", "10-15")]),
     )
@@ -94,10 +97,7 @@ else:
 
 ACCESSORY_NOTE = "Leave 1-2 reps in the tank; add weight when you hit the top of the range"
 TEST_NOTE = "Work up in small jumps to a new max (1RM, or a 3RM/5RM if you prefer). Log it - it sets next cycle's weights"
-PLYO_NOTES = {
-    "Box Jump": "Explode up, land softly, STEP down. Full reset between reps. Log your box height; check the standards",
-    "Broad Jump": "Two-foot jump for distance, stick the landing. Full reset between reps. Log your best distance",
-}
+PLYO_NOTES = PLYO_GUIDE
 
 
 @dataclass(frozen=True)
@@ -185,14 +185,35 @@ def _plyo(name, sets, reps, note=None):
     return Prescription(name, sets, str(reps), note=note or PLYO_NOTES[name], kind="plyo")
 
 
+def _plyos(slots, cycle, block, sets, reps):
+    out = []
+    for slot in slots:
+        name = _resolve(slot, cycle, block)[0]
+        if name == "Med Ball Chest Pass":
+            out.append(_plyo(name, max(2, sets - 1), 5 if sets > 2 else 3))
+        else:
+            out.append(_plyo(name, sets, reps))
+    return out
+
+
+def _plyo_test(day_index, baseline=False):
+    name = TEST_PLYO[day_index]
+    note = ("Find your best: " if baseline else "Test day: ") + {
+        "Box Jump": "work up box by box to the highest box you land cleanly",
+        "Broad Jump": "best of 3-5 jumps for distance",
+        "Vertical Jump": "best of 3-5 jumps (jump mark minus standing reach)",
+    }[name] + ". Log it and check the standards on Start Here"
+    return _plyo(name, 1, "Max", note)
+
+
 def _session(week: int) -> list[Session]:
     cycle = cycle_of(week)
     sessions = []
     for i, (name, plyo, lifts, accessories) in enumerate(DAYS):
+        # plyo is a tuple of plyo slots; "@plyo" rotates with the variation blocks
         if week == 0:
             phase = "Baseline"
-            exercises = [_plyo(plyo, 1, "Max", "Find your best: work up box by box (or jump for distance). "
-                                                "Log it - see the standards on Start Here")]
+            exercises = [_plyo_test(i, baseline=True)]
             for s, _ in lifts:
                 ex, _ = _resolve(s, 1, 0)
                 if ex == "Squat" and i == 1:
@@ -208,13 +229,13 @@ def _session(week: int) -> list[Session]:
             if week_in < 4:
                 phase = "Transition"
                 pct = (60, 62.5, 65)[week_in - 1]
-                exercises = [_plyo(plyo, 3, 3)]
+                exercises = _plyos(plyo, cycle, 0, 3, 3)
                 exercises += [Prescription(ex, 3, "3" if is_olympic(ex) else "8", pct,
                                            "Easy volume - stay 3+ reps from failure", kind) for ex, kind in resolved]
                 exercises += _accessories(accessories, 4)
             else:
                 phase = "Deload"
-                exercises = [_plyo(plyo, 2, 3)]
+                exercises = _plyos(plyo, cycle, 0, 2, 3)
                 exercises += [Prescription(ex, 2, "2" if is_olympic(ex) else "5", 55.0,
                                            "Full recovery week before the next year", kind) for ex, kind in resolved]
                 exercises += _accessories(accessories, 2, "Easy")
@@ -226,7 +247,7 @@ def _session(week: int) -> list[Session]:
             if block:
                 phase = block.name
                 idx = block.weeks.index(w)
-                exercises = [_plyo(plyo, *block.plyo)]
+                exercises = _plyos(plyo, cycle, block_idx, *block.plyo)
                 for ex, kind, intensity in resolved:
                     pct = block.intensity[intensity][idx]
                     sets, reps = _sets_reps(pct, block.rep_bias, ex, intensity)
@@ -234,13 +255,13 @@ def _session(week: int) -> list[Session]:
                 exercises += _accessories(accessories, block.accessory_sets)
             elif w in DELOAD:
                 phase = "Deload"
-                exercises = [_plyo(plyo, 2, 3)]
+                exercises = _plyos(plyo, cycle, block_idx, 2, 3)
                 exercises += [Prescription(ex, 2, "2" if is_olympic(ex) else "5", DELOAD[w],
                                            "Easy week - move fast, recover", kind) for ex, kind, _ in resolved]
                 exercises += _accessories(accessories, 2, "Easy - stop well short of failure")
             elif w == TAPER_WEEK:
                 phase = "Taper"
-                exercises = [_plyo(plyo, 2, 2)]
+                exercises = _plyos(plyo, cycle, block_idx, 2, 2)
                 for ex, kind, intensity in resolved:
                     if kind == "variation":
                         exercises.append(Prescription(ex, 2, "2" if is_olympic(ex) else "3", 75.0, "Crisp and fast", kind))
@@ -253,8 +274,7 @@ def _session(week: int) -> list[Session]:
             else:
                 phase = "Test"
                 tested = TESTED.get(i, set())
-                exercises = [_plyo(plyo, 1, "Max", "Test day: work up to your highest box / longest jump and log it")
-                             if i > 0 else _plyo(plyo, 2, 2)]
+                exercises = [_plyo_test(i)]
                 for ex, kind, _ in resolved:
                     if kind == "variation":
                         reps = "1RM" if is_olympic(ex) else "3RM"
@@ -284,9 +304,27 @@ def week_label(week: int) -> str:
     return f"Week {week} - Cycle {cycle} - {phase}"
 
 
+MONTH_WEEKS = 4
+MONTHS = WEEKS // MONTH_WEEKS  # 13 training months of 4 weeks; 3 months = one 12-week cycle
+
+
+def month_of(week: int) -> int:
+    """Training month (1-13) a week belongs to; week 0 (baseline) is month 0."""
+    return 0 if week == 0 else (week - 1) // MONTH_WEEKS + 1
+
+
+def month_weeks(month: int) -> list[int]:
+    return [0] if month == 0 else list(range((month - 1) * MONTH_WEEKS + 1, month * MONTH_WEEKS + 1))
+
+
 def bodyfat_week(month: int) -> int:
-    """Program week in which the monthly body-fat test (month 1-12) falls."""
-    return 1 + round((month - 1) * 52 / 12)
+    """Program week of the monthly body-fat test: the first week of each training month."""
+    return (month - 1) * MONTH_WEEKS + 1
+
+
+SHOULDER_TIP = ("SHOULDER TIP - for you malchiki with no shoulder development: 100 reps each of front raises, "
+                "lateral (medial) raises and rear delt raises EVERY night before bed with 5 lb (2.5 kg) "
+                "dumbbells. Go buy a pair and keep them by your nightstand.")
 
 
 def next_monday(today: date | None = None) -> date:

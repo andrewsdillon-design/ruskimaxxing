@@ -58,7 +58,9 @@ _OLY_VARIATIONS = {
 if is_supertotal():
     _VARIATIONS.update(_OLY_VARIATIONS)
 
-PLYOS = ("Box Jump", "Broad Jump")
+# Tested plyos have standards; the rest rotate through Day 3 (distance / height logged)
+PLYOS = ("Box Jump", "Broad Jump", "Vertical Jump", "Depth Jump", "Hurdle Hop", "Lateral Bound",
+         "Plyo Push-up", "Seated Box Jump", "Med Ball Chest Pass")
 
 ACCESSORIES = (
     "Barbell Row", "Face Pull", "Dumbbell Curl", "Chin-up", "Lat Pulldown", "Back Extension",
@@ -85,6 +87,7 @@ ROTATION = {
     # supertotal only: one Olympic variation slot on Day 3, alternating snatch / clean & jerk work
     "Olympic": ["Power Snatch", "Power Clean", "Hang Snatch", "Hang Clean", "Snatch Balance",
                 "Push Jerk", "Block Snatch", "Split Jerk"],
+    "Plyo": ["Depth Jump", "Hurdle Hop", "Vertical Jump", "Lateral Bound", "Plyo Push-up", "Seated Box Jump"],
 }
 
 
@@ -92,27 +95,80 @@ def exercise_names(category: str | None = None) -> list[str]:
     return [e.name for e in CATALOG.values() if category is None or e.category == category]
 
 
-# Box jump standards: box height as a fraction of the lifter's standing height
-BOX_JUMP_STANDARDS = (
-    ("Beginner", "1 step", None),           # one stair step: 7.5 in / 19 cm
-    ("Intermediate", "above knee", 0.30),
-    ("Proficient", "chest height", 0.72),
-    ("Elite", "head height", 0.93),
-)
+# Jump standards. A ratio is a fraction of the lifter's standing height; an absolute
+# value is (inches, cm). Broad and vertical jump numbers are common rules of thumb.
+JUMP_STANDARDS = {
+    "Box Jump": (
+        ("Beginner", "1 step", ("abs", 7.5, 19.0)),
+        ("Intermediate", "above knee height", ("ratio", 0.30)),
+        ("Proficient", "chest height", ("ratio", 0.72)),
+        ("Elite", "head height", ("ratio", 0.93)),
+    ),
+    "Broad Jump": (
+        ("Beginner", "3/4 of your height", ("ratio", 0.75)),
+        ("Intermediate", "your height", ("ratio", 1.0)),
+        ("Proficient", "1.25 x your height", ("ratio", 1.25)),
+        ("Elite", "1.5 x your height", ("ratio", 1.5)),
+    ),
+    "Vertical Jump": (
+        ("Beginner", "12 in / 30 cm", ("abs", 12.0, 30.0)),
+        ("Intermediate", "18 in / 46 cm", ("abs", 18.0, 46.0)),
+        ("Proficient", "24 in / 61 cm", ("abs", 24.0, 61.0)),
+        ("Elite", "30 in / 76 cm", ("abs", 30.0, 76.0)),
+    ),
+}
+LEVELS = ("Beginner", "Intermediate", "Proficient", "Elite")
 STEP_HEIGHT = {"in": 7.5, "cm": 19.0}
+BOX_JUMP_STANDARDS = tuple((lvl, desc, None if rule[0] == "abs" else rule[1])
+                           for lvl, desc, rule in JUMP_STANDARDS["Box Jump"])
+
+PLYO_GUIDE = {
+    "Box Jump": "Two-foot jump onto a box, land soft in a quarter squat, STEP down. Log the box height "
+                "(floor to top of box).",
+    "Broad Jump": "Standing two-foot jump forward, stick the landing. Measure toe line to the back of the "
+                  "nearest heel.",
+    "Vertical Jump": "Stand side-on to a wall, reach up and mark it; jump and touch as high as you can. "
+                     "Log jump mark minus standing reach.",
+    "Depth Jump": "Step off a low box (12-18 in / 30-45 cm), land and rebound straight up as fast as possible. "
+                  "Log the drop-box height.",
+    "Hurdle Hop": "Continuous two-foot hops over a row of 4-6 low hurdles or cones, minimal ground contact. "
+                  "Log the hurdle height.",
+    "Lateral Bound": "Single-leg bound sideways, stick the landing on the other leg, then back. "
+                     "Log distance (each side counts as a rep).",
+    "Plyo Push-up": "Explosive push-up so the hands leave the floor. Log reps (distance/height = 1).",
+    "Seated Box Jump": "Sit on a box, feet flat, then jump from seated onto a second box. Log the landing-box height.",
+    "Med Ball Chest Pass": "Kneeling or standing chest pass for distance with a 6-10 lb / 3-5 kg ball. "
+                           "Log the distance.",
+}
 
 
-def box_jump_targets(height: float, unit: str = "in") -> list[tuple[str, str, float]]:
-    """[(level, description, box height)] for someone `height` tall (same unit)."""
-    return [(level, desc, STEP_HEIGHT[unit] if ratio is None else round(height * ratio, 1))
-            for level, desc, ratio in BOX_JUMP_STANDARDS]
+def jump_targets(exercise: str, height: float | None, unit: str = "in") -> list[tuple[str, str, float | None]]:
+    """[(level, description, target)] for a jump with standards (same unit as `height`)."""
+    out = []
+    for level, desc, rule in JUMP_STANDARDS.get(exercise, ()):
+        if rule[0] == "abs":
+            value = rule[1] if unit == "in" else rule[2]
+        else:
+            value = round(height * rule[1], 1) if height else None
+        out.append((level, desc, value))
+    return out
 
 
-def box_jump_level(best: float | None, height: float | None, unit: str = "in") -> str:
-    if not best or not height:
+def jump_level(exercise: str, best: float | None, height: float | None, unit: str = "in") -> str:
+    if not best:
         return "Not tested"
     level = "Below beginner"
-    for name, _, target in box_jump_targets(height, unit):
+    for name, _, target in jump_targets(exercise, height, unit):
+        if target is None:
+            return "Enter your height"
         if best >= target:
             level = name
     return level
+
+
+def box_jump_targets(height: float, unit: str = "in") -> list[tuple[str, str, float]]:
+    return [(l, d, t if t is not None else 0.0) for l, d, t in jump_targets("Box Jump", height, unit)]
+
+
+def box_jump_level(best: float | None, height: float | None, unit: str = "in") -> str:
+    return jump_level("Box Jump", best, height, unit)

@@ -1,14 +1,14 @@
 import os
-import shutil
 
 import pytest
 
 tk = pytest.importorskip("tkinter")
 
 
-@pytest.mark.skipif(not os.environ.get("DISPLAY") and not shutil.which("xvfb-run"), reason="no display")
-@pytest.mark.skipif(not os.environ.get("DISPLAY"), reason="needs a display (run under xvfb-run)")
-def test_app_builds_every_tab(tmp_path):
+@pytest.fixture
+def app(tmp_path):
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs a display (run under xvfb-run)")
     from datetime import date
 
     from ruskimaxxing.gui import App
@@ -17,16 +17,66 @@ def test_app_builds_every_tab(tmp_path):
 
     store = Store(tmp_path / "d.db")
     store.set("start", "2026-01-05")
-    store.add_lift(LogEntry(date(2025, 12, 29), "Squat", 225, 5, "baseline"))
+    store.set("increment", "5")
+    store.add_lift(LogEntry(date(2025, 12, 29), "Squat", 225, 5, "baseline"))  # e1RM 262.5
     root = tk.Tk()
-    try:
-        app = App(root, store)
-        for i in range(app.tabs.index("end")):
-            app.tabs.select(i)
-            root.update()
-        rows = [app.plan.item(i, "values") for i in app.plan.get_children()]
-        assert any(r[1] == "Squat" and r[5] for r in rows)
-        data = app.export_data()
-        assert data["baseline"] == [("Squat", 225, 5)]
-    finally:
-        root.destroy()
+    app = App(root, store)
+    app.week.set(app.week_labels[1])
+    app.day_var.set(0)
+    app.refresh()
+    yield app
+    root.destroy()
+
+
+def block(app, name):
+    return next(b for b in app.wo_blocks if b["p"].exercise == name)
+
+
+def test_every_tab_builds(app):
+    for i in range(app.tabs.index("end")):
+        app.tabs.select(i)
+        app.root.update()
+    assert app.export_data()["baseline"] == [("Squat", 225, 5)]
+
+
+def test_workout_prefilled_with_plan(app):
+    squat = block(app, "Squat")
+    assert len(squat["vars"]) == squat["p"].sets == 3
+    assert [v["weight"].get() for v in squat["vars"]] == ["185"] * 3  # 70% of 262.5, nearest 5
+    assert [v["reps"].get() for v in squat["vars"]] == ["6"] * 3
+    assert not any(v["done"].get() for v in squat["vars"])
+    assert block(app, "Barbell Row")["vars"][0]["reps"].get() == "8"  # low end of 8-10
+
+
+def test_edit_mark_done_save_and_reload(app):
+    squat = block(app, "Squat")
+    squat["vars"][2]["reps"].set("5")        # missed a rep on the last set
+    squat["vars"][0]["rpe"].set("8")
+    squat["note_var"].set("felt good")
+    app._add_set(app.wo_blocks.index(block(app, "Squat")))
+    block(app, "Squat")["vars"][3]["weight"].set("195")
+    app._mark_all_done()
+    prs = app._save_workout(quiet=True)
+    assert any(p.startswith("Squat:") for p in prs)
+
+    saved = [e for e in app.store.workout(1, 0) if e.exercise == "Squat"]
+    assert [(e.weight, e.reps, e.done) for e in saved] == [(185, 6, True), (185, 6, True), (185, 5, True),
+                                                           (195, 5, True)]
+    assert saved[0].rpe == 8 and saved[0].note == "felt good"
+
+    app.day_var.set(1)
+    app.refresh()
+    app.day_var.set(0)
+    app.refresh()
+    reloaded = block(app, "Squat")["vars"]
+    assert [v["reps"].get() for v in reloaded] == ["6", "6", "5", "5"] and reloaded[3]["weight"].get() == "195"
+    assert "15/15 sets" in app.day_buttons[0].cget("text") or "sets" in app.day_buttons[0].cget("text")
+
+
+def test_unsaved_edits_are_kept_when_switching_day(app):
+    block(app, "Squat")["vars"][0]["weight"].set("190")
+    block(app, "Squat")["vars"][0]["done"].set(True)
+    app.day_var.set(2)
+    app.refresh()
+    first = [e for e in app.store.workout(1, 0) if e.exercise == "Squat"][0]
+    assert first.weight == 190 and first.done

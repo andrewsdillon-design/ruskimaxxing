@@ -6,6 +6,7 @@ charted against bodyweight) - Body (weekly bodyweight, monthly body fat) - Log.
 All data lives in a local SQLite file (see storage.py).
 """
 
+import sys
 import tkinter as tk
 from datetime import date, timedelta
 from tkinter import filedialog, messagebox, ttk
@@ -13,10 +14,13 @@ from tkinter import filedialog, messagebox, ttk
 from ruskimaxxing import __version__
 from ruskimaxxing.edition import app_name
 from ruskimaxxing.excel import build_workbook
-from ruskimaxxing.exercises import CATALOG, MAIN, box_jump_level, box_jump_targets
+from pathlib import Path
+
+from ruskimaxxing.exercises import (CATALOG, JUMP_STANDARDS, LEVELS, MAIN, STEP_HEIGHT, box_jump_targets,
+                                   jump_level, jump_targets)
 from ruskimaxxing.prilepin import ZONES
-from ruskimaxxing.program import (WEEKS, bodyfat_week, build_program, cycle_start, next_monday,
-                                  week_label)
+from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program, cycle_start,
+                                  next_monday, week_label)
 from ruskimaxxing.storage import Store
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
                                    BodyWeight, LogEntry, best_e1rm, e1rm_history, new_prs,
@@ -25,7 +29,53 @@ from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNT
 DEFAULT_INCREMENT = {"lb": 5.0, "kg": 2.5}
 INTAKE = (("name", "Name (optional)"), ("height", "Height"), ("bodyweight_start", "Starting bodyweight"),
           ("bodyfat_start", "Starting body fat % (optional)"), ("age", "Age (optional)"))
-COLORS = ("#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b")
+# Byzantine palette: imperial purple, gold, crimson, ivory / parchment
+BYZ = {"purple": "#4A1942", "purple_dark": "#2E0C28", "gold": "#C9A227", "gold_light": "#F2D675",
+       "crimson": "#8B1A1A", "ivory": "#F6EFDE", "parchment": "#EDE3CF", "ink": "#2B1B24", "field": "#FFF8E1"}
+COLORS = ("#4A1942", "#8B1A1A", "#B8860B", "#1F6F5C", "#7B4FA0", "#5A5A5A")
+ASSETS = Path(__file__).resolve().parent / "assets"
+TITLE_FONT = ("Georgia", 22, "bold")
+
+
+def apply_theme(root: tk.Tk) -> None:
+    """Old-school Byzantine skin on top of ttk's 'clam' theme (works the same on every OS)."""
+    P, bold = BYZ, ("TkDefaultFont", 10, "bold")
+    st = ttk.Style(root)
+    st.theme_use("clam")
+    root.configure(bg=P["parchment"])
+    st.configure(".", background=P["parchment"], foreground=P["ink"], fieldbackground=P["field"],
+                 bordercolor=P["gold"], lightcolor=P["ivory"], darkcolor=P["gold"], troughcolor=P["ivory"])
+    for w in ("TFrame", "TLabel", "TCheckbutton", "TRadiobutton"):
+        st.configure(w, background=P["parchment"], foreground=P["ink"])
+    st.configure("TLabelframe", background=P["parchment"], bordercolor=P["gold"])
+    st.configure("TLabelframe.Label", background=P["parchment"], foreground=P["purple"], font=bold)
+    st.configure("TNotebook", background=P["purple_dark"], borderwidth=0, tabmargins=(6, 6, 6, 0))
+    st.configure("TNotebook.Tab", background=P["purple"], foreground=P["gold_light"], padding=(16, 6), font=bold,
+                 bordercolor=P["gold"])
+    st.map("TNotebook.Tab", background=[("selected", P["gold"]), ("active", P["crimson"])],
+           foreground=[("selected", P["purple_dark"])])
+    st.configure("TButton", background=P["purple"], foreground=P["gold_light"], bordercolor=P["gold"],
+                 focuscolor=P["gold"], padding=(10, 4), font=bold)
+    st.map("TButton", background=[("pressed", P["purple_dark"]), ("active", P["crimson"])])
+    st.configure("Toolbutton", background=P["ivory"], foreground=P["purple"], padding=(10, 5), font=bold,
+                 bordercolor=P["gold"])
+    st.map("Toolbutton", background=[("selected", P["purple"]), ("active", P["gold_light"])],
+           foreground=[("selected", P["gold_light"])])
+    st.configure("Treeview", background=P["ivory"], fieldbackground=P["ivory"], foreground=P["ink"], rowheight=22)
+    st.configure("Treeview.Heading", background=P["purple"], foreground=P["gold_light"], font=bold, relief="flat")
+    st.map("Treeview.Heading", background=[("active", P["crimson"])])
+    st.map("Treeview", background=[("selected", P["crimson"])], foreground=[("selected", P["ivory"])])
+    for w in ("TEntry", "TCombobox", "TSpinbox"):
+        st.configure(w, fieldbackground=P["field"], bordercolor=P["gold"], arrowcolor=P["purple"])
+    st.configure("TSeparator", background=P["gold"])
+    st.configure("Vertical.TScrollbar", background=P["purple"], arrowcolor=P["gold_light"], bordercolor=P["gold"])
+
+
+def load_logo(size: str = "96"):
+    try:
+        return tk.PhotoImage(file=str(ASSETS / f"logo_{size}.png" if size != "512" else ASSETS / "logo.png"))
+    except (tk.TclError, OSError):
+        return None
 
 
 def _num(text) -> float | None:
@@ -49,7 +99,8 @@ class Chart(tk.Canvas):
     PAD = (58, 20, 58, 36)  # left, top, right, bottom
 
     def __init__(self, parent, **kw):
-        super().__init__(parent, background="white", highlightthickness=0, **kw)
+        super().__init__(parent, background=BYZ["ivory"], highlightthickness=1,
+                         highlightbackground=BYZ["gold"], **kw)
         self.series = []
         self.hlines = []
         self.title = ""
@@ -64,7 +115,7 @@ class Chart(tk.Canvas):
         self.delete("all")
         w, h = self.winfo_width(), self.winfo_height()
         left, top, right, bottom = self.PAD
-        self.create_text(w / 2, 10, text=self.title, font=("TkDefaultFont", 10, "bold"))
+        self.create_text(w / 2, 10, text=self.title, font=("TkDefaultFont", 10, "bold"), fill=BYZ["purple"])
         if not self.series or w < 150 or h < 100:
             self.create_text(w / 2, h / 2, text="No data yet", fill="#888")
             return
@@ -131,8 +182,21 @@ class App(ttk.Frame):
         self.sex = tk.StringVar(value=self.store.get("sex", ""))
         self.week = tk.StringVar(value=self.week_labels[self._current_week()])
 
+        banner = tk.Frame(self, bg=BYZ["purple_dark"], highlightthickness=2, highlightbackground=BYZ["gold"])
+        banner.pack(fill="x")
+        self.logo = load_logo("96")
+        if self.logo:
+            tk.Label(banner, image=self.logo, bg=BYZ["purple_dark"]).pack(side="left", padx=(8, 12), pady=4)
+        titles = tk.Frame(banner, bg=BYZ["purple_dark"])
+        titles.pack(side="left", fill="y", pady=6)
+        tk.Label(titles, text=app_name().upper(), font=TITLE_FONT, fg=BYZ["gold"], bg=BYZ["purple_dark"]).pack(
+            anchor="w")
+        tk.Label(titles, text="STRENGTH  \u2022  MASS  \u2022  POWER    |    Verkhoshansky \u2022 Siff \u2022 Prilepin",
+                 font=("TkDefaultFont", 10, "bold"), fg=BYZ["gold_light"], bg=BYZ["purple_dark"]).pack(anchor="w")
+        tk.Label(self, text=SHOULDER_TIP, bg=BYZ["crimson"], fg=BYZ["ivory"], font=("TkDefaultFont", 9, "bold"),
+                 wraplength=1100, justify="left", padx=10, pady=4).pack(fill="x")
         self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True)
+        self.tabs.pack(fill="both", expand=True, pady=(4, 0))
         for name, builder in (("Start", self._start_tab), ("Program", self._program_tab),
                               ("Progress", self._progress_tab), ("PRs", self._prs_tab),
                               ("Body", self._body_tab), ("Log", self._log_tab)):
@@ -220,8 +284,8 @@ class App(ttk.Frame):
         bar.pack(fill="x")
         self.base_ex = tk.StringVar(value=MAIN[0])
         self.base_w, self.base_r = tk.StringVar(), tk.StringVar(value="1")
-        ttk.Combobox(bar, textvariable=self.base_ex, values=list(CATALOG), width=24).pack(side="left")
-        ttk.Label(bar, text="Weight / height").pack(side="left", padx=(8, 2))
+        ttk.Combobox(bar, textvariable=self.base_ex, values=list(CATALOG), width=20).pack(side="left")
+        ttk.Label(bar, text="Weight").pack(side="left", padx=(8, 2))
         ttk.Entry(bar, textvariable=self.base_w, width=8).pack(side="left")
         ttk.Label(bar, text="Reps").pack(side="left", padx=(8, 2))
         ttk.Spinbox(bar, from_=1, to=20, textvariable=self.base_r, width=4).pack(side="left")
@@ -235,15 +299,16 @@ class App(ttk.Frame):
         box = ttk.LabelFrame(right, text="PR board", padding=6)
         box.pack(fill="x")
         frame, self.board = self._tree(box, [("lift", "Lift"), ("e1rm", "Best e1RM"), ("r1", "1RM"), ("r3", "3RM"),
-                                             ("r5", "5RM")], (120, 80, 55, 55, 55), height=len(MAIN) + 1)
+                                             ("r5", "5RM")], (125, 90, 60, 60, 60), height=len(MAIN) + 1)
         frame.pack(fill="x")
-        box = ttk.LabelFrame(right, text="Box jump standards (from your height)", padding=6)
+        box = ttk.LabelFrame(right, text="Plyometric standards (from your height)", padding=6)
         box.pack(fill="x", pady=(8, 0))
-        frame, self.jumps = self._tree(box, [("level", "Level"), ("desc", "Box"), ("h", "Height"), ("ok", "Reached")],
-                                       (95, 100, 72, 70), height=4)
+        frame, self.jumps = self._tree(box, [("level", "Level"), ("box", "Box jump"), ("broad", "Broad jump"),
+                                             ("vert", "Vertical")], (100, 100, 105, 100), height=6)
         frame.pack(fill="x")
-        self.jump_level = ttk.Label(box, font=("TkDefaultFont", 10, "bold"), wraplength=340)
-        self.jump_level.pack(anchor="w", pady=(4, 0))
+        self.jumps.tag_configure("you", font=("TkDefaultFont", 10, "bold"), foreground=BYZ["crimson"])
+        ttk.Label(box, text="Box: step / knee / chest / head.  Broad: 0.75-1.5x height.  Vertical: 12-30 in.",
+                  foreground="#6b5a45", wraplength=350).pack(anchor="w", pady=(4, 0))
         box = ttk.LabelFrame(right, text="Prilepin's chart", padding=6)
         box.pack(fill="x", pady=(8, 0))
         frame, tree = self._tree(box, [("pct", "% of max"), ("reps", "Reps/set"), ("opt", "Optimal"), ("rng", "Range")],
@@ -275,7 +340,7 @@ class App(ttk.Frame):
         self.base_w.set("")
         self.refresh()
 
-    # ----- Program tab ------------------------------------------------------------
+    # ----- Program tab: per-set workout logger --------------------------------------
     def _program_tab(self, tab):
         bar = ttk.Frame(tab)
         bar.pack(fill="x")
@@ -292,18 +357,51 @@ class App(ttk.Frame):
         self.bf_due = ttk.Label(tab, foreground="#B00020", font=("TkDefaultFont", 10, "bold"))
         self.bf_due.pack(anchor="w", pady=(4, 0))
 
-        cols = [("day", "Day"), ("ex", "Exercise"), ("sets", "Sets x Reps"), ("pct", "% TM"), ("tm", "Training max"),
-                ("weight", "Weight / target"), ("logged", "Logged"), ("note", "Guidance")]
-        frame, self.plan = self._tree(tab, cols, (130, 175, 95, 55, 110, 125, 95, 300), height=20)
-        frame.pack(fill="both", expand=True, pady=(4, 0))
-        self.plan.tag_configure("lift", font=("TkDefaultFont", 10, "bold"))
-        self.plan.tag_configure("plyo", foreground="#2E7D32")
-        self.plan.tag_configure("day", background="#EEF3F8")
-        self.plan.bind("<Double-1>", lambda e: self._log_dialog())
-        ttk.Label(tab, text="Double-click an exercise (or select it and press Log set) to record your top set, "
-                            "box height or jump distance.").pack(anchor="w", pady=(4, 0))
-        ttk.Button(tab, text="Log set...", command=self._log_dialog).pack(anchor="w", pady=(4, 0))
-        self.plan_rows = {}
+        days = ttk.Frame(tab)
+        days.pack(fill="x", pady=(4, 0))
+        self.day_var = tk.IntVar(value=0)
+        self.day_buttons = []
+        for i in range(3):
+            b = ttk.Radiobutton(days, variable=self.day_var, value=i, style="Toolbutton", command=self.refresh)
+            b.pack(side="left", padx=(0, 4), ipadx=6, ipady=3)
+            self.day_buttons.append(b)
+
+        ttk.Label(tab, text="Every set is pre-filled with the plan. Change anything that differed, tick Done "
+                            "for each set you completed, then Save workout.", foreground="#666").pack(anchor="w",
+                                                                                                   pady=(4, 0))
+        actions = ttk.Frame(tab)
+        actions.pack(fill="x", pady=(4, 0))
+        ttk.Button(actions, text="Save workout", command=self._save_workout).pack(side="left")
+        ttk.Button(actions, text="Mark all done as prescribed", command=self._mark_all_done).pack(side="left", padx=6)
+        ttk.Button(actions, text="Reset to prescribed", command=self._reset_workout).pack(side="left")
+        self.wo_status = ttk.Label(actions, foreground="#666")
+        self.wo_status.pack(side="left", padx=12)
+
+        outer = ttk.Frame(tab)
+        outer.pack(fill="both", expand=True, pady=(6, 0))
+        self.wo_canvas = tk.Canvas(outer, highlightthickness=0, bg=BYZ["parchment"])
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=self.wo_canvas.yview)
+        self.wo_frame = ttk.Frame(self.wo_canvas, padding=(0, 0, 8, 0))
+        self.wo_frame.bind("<Configure>",
+                           lambda e: self.wo_canvas.configure(scrollregion=self.wo_canvas.bbox("all")))
+        self.wo_canvas.create_window((0, 0), window=self.wo_frame, anchor="nw")
+        self.wo_canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.wo_canvas.pack(side="left", fill="both", expand=True)
+        self.wo_canvas.bind("<Enter>", lambda e: self._wheel(True))
+        self.wo_canvas.bind("<Leave>", lambda e: self._wheel(False))
+        self.wo_blocks = []   # one dict per exercise: prescription, set rows, notes
+        self.wo_key = None    # (week, day) currently on screen
+        self.wo_dirty = False
+
+    def _wheel(self, on):
+        if not on:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                self.wo_canvas.unbind_all(seq)
+            return
+        self.wo_canvas.bind_all("<MouseWheel>", lambda e: self.wo_canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        self.wo_canvas.bind_all("<Button-4>", lambda e: self.wo_canvas.yview_scroll(-1, "units"))
+        self.wo_canvas.bind_all("<Button-5>", lambda e: self.wo_canvas.yview_scroll(1, "units"))
 
     def _step(self, delta):
         self.week.set(self.week_labels[min(WEEKS, max(0, self._week() + delta))])
@@ -312,6 +410,10 @@ class App(ttk.Frame):
     def _today(self):
         self._save_settings()
         self.week.set(self.week_labels[self._current_week()])
+        today = date.today()
+        s = next((s for s in self.sessions if s.week == self._week() and s.date(self.start_date) >= today), None)
+        if s:
+            self.day_var.set(s.day_index)
         self.refresh()
 
     def _save_week_bw(self):
@@ -323,40 +425,230 @@ class App(ttk.Frame):
             self.store.delete_bodyweight(week)
         self.refresh()
 
-    def _log_dialog(self):
-        sel = self.plan.selection()
-        if not sel or sel[0] not in self.plan_rows:
-            messagebox.showinfo("Log set", "Select an exercise first", parent=self.root)
+    # -- building the workout model ----------------------------------------------------
+    def _session(self, week, day):
+        return next(s for s in self.sessions if s.week == week and s.day_index == day)
+
+    @staticmethod
+    def _default_reps(reps: str) -> str:
+        """'6' -> 6, '8-10' -> 8, '30-60s' -> 30, '5RM' -> 5, 'Max' -> 1."""
+        if reps == "Max":
+            return "1"
+        digits = ""
+        for ch in reps:
+            if ch.isdigit():
+                digits += ch
+            elif digits:
+                break
+        return digits
+
+    def _expected_weight(self, p, entries, cycle_start_date, reps: str) -> tuple[str, str]:
+        """(pre-filled weight, text describing where it came from)."""
+        info = CATALOG.get(p.exercise)
+        inc = self._increment()
+        if info and info.category == "plyo":
+            # like training maxes: only jumps logged before this cycle (or starting values) set the target
+            entries = [e for e in entries if e.kind == "baseline" or e.date < cycle_start_date]
+            if p.exercise == "Box Jump":
+                # train on a box you land safely (your best so far); show the next standard as the goal
+                height = _num(self.intake["height"].get())
+                best = max((e.weight for e in entries if e.exercise == "Box Jump" and e.done), default=0)
+                start_box = best or STEP_HEIGHT[self.height_unit]
+                goal = ""
+                if height:
+                    nxt = next(((lvl, t) for lvl, _, t in box_jump_targets(height, self.height_unit) if t > best), None)
+                    goal = f" - next standard: {nxt[0]} {nxt[1]:g} {self.height_unit}" if nxt else " - Elite!"
+                return f"{start_box:g}", f"best {best:g} {self.height_unit}{goal}" if best else f"start low{goal}"
+            best = max((e.weight for e in entries if e.exercise == p.exercise and e.done), default=0)
+            return (f"{best:g}", f"beat {best:g} {self.height_unit}") if best else ("", "distance")
+        if info and info.category in ("main", "variation"):
+            tm, estimated = training_max(entries, p.exercise, cycle_start_date)
+            if not tm:
+                return "", "enter a starting max"
+            note = f"TM {tm:.0f}{' (est.)' if estimated else ''}"
+            if p.is_loaded:
+                return f"{p.weight(tm, inc):g}", note
+            r = int(reps or 1)  # test set: weight you'd expect for that many reps
+            w = round(tm / (1 + r / 30) / inc) * inc if r > 1 else round(tm / inc) * inc
+            return f"{w:g}", note + " - try to beat it"
+        last = max((e for e in entries if e.exercise == p.exercise and e.done and e.weight > 0),
+                   key=lambda e: (e.date, e.id or 0), default=None)
+        return (f"{last.weight:g}", f"last time {last.weight:g} x {last.reps}") if last else ("", "pick a weight")
+
+    def _workout_model(self, week, day, use_saved=True):
+        entries = self.store.lifts()
+        s = self._session(week, day)
+        cs = cycle_start(self.start_date, s.cycle)
+        saved = {}
+        if use_saved:
+            for e in self.store.workout(week, day):
+                saved.setdefault(e.exercise, []).append(e)
+        blocks = []
+        for p in s.exercises:
+            reps = self._default_reps(p.reps)
+            weight, source = self._expected_weight(p, entries, cs, reps)
+            planned = max(p.sets, 1)
+            mine = sorted(saved.get(p.exercise, []), key=lambda e: e.set_no or 0)
+            rows = []
+            for k in range(max(planned, len(mine))):
+                e = mine[k] if k < len(mine) else None
+                rows.append({
+                    "target": f"{weight or '-'} x {reps or p.reps}" if k < planned else "extra set",
+                    "weight": (f"{e.weight:g}" if e.weight else "") if e else weight,
+                    "reps": (str(e.reps) if e.reps else "") if e else reps,
+                    "rpe": (f"{e.rpe:g}" if e.rpe else "") if e else "",
+                    "done": e.done if e else False,
+                })
+            blocks.append({"p": p, "rows": rows, "source": source, "planned": planned,
+                           "note": mine[0].note if mine else ""})
+        return blocks
+
+    # -- rendering ------------------------------------------------------------------
+    def _render_workout(self, blocks):
+        for child in self.wo_frame.winfo_children():
+            child.destroy()
+        self.wo_blocks = []
+        unit, hunit = self.unit, self.height_unit
+        r = 0
+        for bi, b in enumerate(blocks):
+            p = b["p"]
+            info = CATALOG.get(p.exercise)
+            plyo = bool(info and info.category == "plyo")
+            color = "#1F6F5C" if plyo else BYZ["purple"] if p.kind != "accessory" else BYZ["ink"]
+            head = ttk.Frame(self.wo_frame)
+            head.grid(row=r, column=0, columnspan=7, sticky="ew", pady=(10 if r else 0, 2))
+            tk.Label(head, text=p.exercise, font=("TkDefaultFont", 11, "bold"), fg=color,
+                     bg=BYZ["parchment"]).pack(side="left")
+            scheme = f"{p.sets} x {p.reps}" if p.sets else p.reps
+            if p.percent:
+                scheme += f" @ {p.percent:g}%"
+            ttk.Label(head, text=f"   {scheme}   -   {b['source']}").pack(side="left")
+            ttk.Button(head, text="+ Add set", width=9,
+                       command=lambda bi=bi: self._add_set(bi)).pack(side="right")
+            r += 1
+            if p.note:
+                ttk.Label(self.wo_frame, text=p.note, foreground="#666", wraplength=900).grid(
+                    row=r, column=0, columnspan=7, sticky="w")
+                r += 1
+            wlabel = f"Height / distance ({hunit})" if plyo else f"Weight ({unit})"
+            rlabel = "Seconds" if "s" in p.reps and p.reps[-1] == "s" else "Reps"
+            for col, text in enumerate(("Set", "Target", wlabel, rlabel, "RPE", "Done")):
+                ttk.Label(self.wo_frame, text=text, font=("TkDefaultFont", 9, "bold")).grid(
+                    row=r, column=col, sticky="w", padx=(0, 10))
+            r += 1
+            vars_rows = []
+            for k, row in enumerate(b["rows"], start=1):
+                v = {"weight": tk.StringVar(value=row["weight"]), "reps": tk.StringVar(value=row["reps"]),
+                     "rpe": tk.StringVar(value=row["rpe"]), "done": tk.BooleanVar(value=row["done"]),
+                     "target": row["target"]}
+                ttk.Label(self.wo_frame, text=str(k)).grid(row=r, column=0, sticky="w")
+                ttk.Label(self.wo_frame, text=row["target"], foreground="#666").grid(row=r, column=1, sticky="w",
+                                                                                    padx=(0, 10))
+                ttk.Entry(self.wo_frame, textvariable=v["weight"], width=9).grid(row=r, column=2, sticky="w", pady=1)
+                ttk.Entry(self.wo_frame, textvariable=v["reps"], width=6).grid(row=r, column=3, sticky="w")
+                ttk.Combobox(self.wo_frame, textvariable=v["rpe"], width=5,
+                             values=("", "6", "6.5", "7", "7.5", "8", "8.5", "9", "9.5", "10")).grid(
+                    row=r, column=4, sticky="w")
+                ttk.Checkbutton(self.wo_frame, variable=v["done"]).grid(row=r, column=5, sticky="w")
+                for var in (v["weight"], v["reps"], v["rpe"], v["done"]):
+                    var.trace_add("write", lambda *_: self._set_dirty(True))
+                vars_rows.append(v)
+                r += 1
+            note = tk.StringVar(value=b["note"])
+            ttk.Label(self.wo_frame, text="Notes").grid(row=r, column=0, sticky="w")
+            ttk.Entry(self.wo_frame, textvariable=note, width=70).grid(row=r, column=1, columnspan=5, sticky="w",
+                                                                     pady=(2, 0))
+            note.trace_add("write", lambda *_: self._set_dirty(True))
+            r += 1
+            ttk.Separator(self.wo_frame).grid(row=r, column=0, columnspan=7, sticky="ew", pady=(6, 0))
+            r += 1
+            self.wo_blocks.append({**b, "vars": vars_rows, "note_var": note})
+        self.wo_canvas.yview_moveto(0)
+
+    def _collect(self):
+        """Current screen state back into model form."""
+        blocks = []
+        for b in self.wo_blocks:
+            rows = [{"target": v["target"], "weight": v["weight"].get(), "reps": v["reps"].get(),
+                     "rpe": v["rpe"].get(), "done": v["done"].get()} for v in b["vars"]]
+            blocks.append({"p": b["p"], "rows": rows, "source": b["source"], "planned": b["planned"],
+                           "note": b["note_var"].get()})
+        return blocks
+
+    def _set_dirty(self, dirty):
+        self.wo_dirty = dirty
+        if dirty:
+            self.wo_status.config(text="Unsaved changes - press Save workout")
+
+    def _add_set(self, bi):
+        blocks = self._collect()
+        rows = blocks[bi]["rows"]
+        extra = dict(rows[-1]) if rows else {"weight": "", "reps": "", "rpe": ""}
+        extra.update(target="extra set", done=False, rpe="")
+        rows.append(extra)
+        self._render_workout(blocks)
+        self._set_dirty(True)
+
+    def _mark_all_done(self):
+        blocks = self._collect()
+        for b in blocks:
+            for row in b["rows"]:
+                if row["reps"]:
+                    row["done"] = True
+        self._render_workout(blocks)
+        self._set_dirty(True)
+
+    def _reset_workout(self):
+        if self.wo_key:
+            self._render_workout(self._workout_model(*self.wo_key, use_saved=False))
+            self._set_dirty(True)
+
+    def _save_workout(self, quiet=False):
+        if not self.wo_key or not self.wo_blocks:
             return
-        session, p, suggested = self.plan_rows[sel[0]]
-        plyo = CATALOG.get(p.exercise) and CATALOG[p.exercise].category == "plyo"
-        win = tk.Toplevel(self.root)
-        win.title(f"Log {p.exercise}")
-        win.transient(self.root)
-        d = tk.StringVar(value=session.date(self.start_date).isoformat())
-        w = tk.StringVar(value=f"{suggested:g}" if suggested else "")
-        r = tk.StringVar(value="1" if plyo else (p.reps if p.reps.isdigit() else ""))
-        fields = [("Date", d), (("Box height / distance" if plyo else f"Weight ({self.unit})"), w)]
-        if not plyo:
-            fields.append(("Reps", r))
-        for i, (label, var) in enumerate(fields):
-            ttk.Label(win, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=4)
-            ttk.Entry(win, textvariable=var, width=12).grid(row=i, column=1, padx=8, pady=4)
+        week, day = self.wo_key
+        s = self._session(week, day)
+        when = s.date(self.start_date)
+        entries, bad = [], []
+        for b in self._collect():
+            p = b["p"]
+            kind = "test" if p.kind == "test" or p.reps == "Max" else "training"
+            for k, row in enumerate(b["rows"], start=1):
+                weight = _num(row["weight"]) or 0.0
+                reps = _num(row["reps"])
+                if row["done"] and not reps:
+                    bad.append(f"{p.exercise} set {k}")
+                entries.append(LogEntry(when, p.exercise, weight, int(reps or 0), kind, b["note"],
+                                        set_no=k, rpe=_num(row["rpe"]), done=bool(row["done"] and reps)))
+        if bad and not quiet:
+            messagebox.showwarning("Check reps", "These sets are ticked Done but have no reps, so they were saved "
+                                   "as not done:\n" + "\n".join(bad), parent=self.root)
+        others = [e for e in self.store.lifts() if not (e.week == week and e.day == day)]
+        saved = self.store.save_workout(week, day, entries)
+        self.wo_dirty = False
+        done = sum(e.done for e in saved)
+        self.wo_status.config(text=f"Saved {s.day}: {done} set{'s' * (done != 1)} done")
+        prs = self._workout_prs(others, [e for e in saved if e.done])
+        self.refresh(rebuild=True)
+        if prs and not quiet:
+            messagebox.showinfo("New PR!", "\n".join(prs), parent=self.root)
+        return prs
 
-        def save():
-            weight, reps, day = _num(w.get()), _num(r.get()), _date(d.get())
-            if not weight or not reps or not day:
-                messagebox.showerror("Log set", "Enter a date (YYYY-MM-DD), weight and reps", parent=win)
-                return
-            kind = "test" if p.kind == "test" or p.reps in ("Max",) else "training"
-            entry = self.store.add_lift(LogEntry(day, p.exercise, weight, int(reps), kind))
-            prs = new_prs(self.store.lifts(), entry)
-            win.destroy()
-            self.refresh()
-            if prs:
-                messagebox.showinfo("New PR!", f"{p.exercise}\n\n" + "\n".join(prs), parent=self.root)
-
-        ttk.Button(win, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=8)
+    @staticmethod
+    def _workout_prs(others, done_sets):
+        best = {}
+        for e in done_sets:
+            plyo = CATALOG.get(e.exercise) and CATALOG[e.exercise].category == "plyo"
+            for label in new_prs(others + [e], e):
+                if plyo:
+                    if not label.startswith("1RM"):
+                        continue
+                    label = f"Best {e.weight:g}"
+                kind, value = label.rsplit(" ", 1)
+                key = (e.exercise, kind)
+                if key not in best or float(value) > best[key]:
+                    best[key] = float(value)
+        return [f"{ex}: {kind} {value:g}" for (ex, kind), value in best.items()]
 
     # ----- Progress tab -----------------------------------------------------------
     def _progress_tab(self, tab):
@@ -374,12 +666,14 @@ class App(ttk.Frame):
         lifts = [(lift, e1rm_history(entries, lift), COLORS[i % len(COLORS)], "left") for i, lift in enumerate(MAIN)]
         self.lift_chart.plot(f"Main lifts - best est. 1RM ({self.unit}) vs bodyweight",
                              lifts + [("Bodyweight", bw, "#555", "right")])
-        jumps = [(name, sorted({e.date: max(x.weight for x in entries if x.exercise == name and x.date == e.date)
-                                for e in entries if e.exercise == name}.items()), color, side)
-                 for name, color, side in (("Box Jump", COLORS[2], "left"), ("Broad Jump", COLORS[4], "right"))]
+        done = [e for e in entries if e.done and e.weight > 0]
+        jumps = [(name, sorted({e.date: max(x.weight for x in done if x.exercise == name and x.date == e.date)
+                                for e in done if e.exercise == name}.items()), color, side)
+                 for name, color, side in (("Box Jump", COLORS[2], "left"), ("Vertical Jump", COLORS[3], "left"),
+                                           ("Broad Jump", COLORS[1], "right"))]
         height = _num(self.intake["height"].get())
         standards = [(f"{level} {t:g}", t) for level, _, t in box_jump_targets(height, self.height_unit)] if height else []
-        self.plyo_chart.plot(f"Plyometrics - box jump / broad jump ({self.height_unit})", jumps, standards)
+        self.plyo_chart.plot(f"Plyometrics ({self.height_unit}) - box-jump standards dotted", jumps, standards)
         fats = sorted(self.store.bodyfats(), key=lambda f: f.date)
         self.body_chart.plot("Bodyweight and body fat %", [
             ("Bodyweight", bw, COLORS[1], "left"), ("Body fat %", [(f.date, f.percent) for f in fats], COLORS[3], "right")])
@@ -402,7 +696,7 @@ class App(ttk.Frame):
         ex = sel[0] if sel else MAIN[0]
         info = CATALOG.get(ex)
         if info and info.category == "plyo":
-            points = sorted((e.date, e.weight) for e in entries if e.exercise == ex)
+            points = sorted((e.date, e.weight) for e in entries if e.exercise == ex and e.done and e.weight > 0)
             label = "Best height / distance"
         else:
             points, label = e1rm_history(entries, ex), "Best est. 1RM"
@@ -435,7 +729,7 @@ class App(ttk.Frame):
         self.bf_vars["method"].set(self.store.get("bodyfat_method", "") or BODYFAT_METHODS[0])
         grid = ttk.Frame(box)
         grid.pack(fill="x")
-        widgets = [("Month (1-12)", ttk.Spinbox(grid, from_=1, to=12, textvariable=self.bf_vars["month"], width=4)),
+        widgets = [(f"Month (1-{MONTHS})", ttk.Spinbox(grid, from_=1, to=MONTHS, textvariable=self.bf_vars["month"], width=4)),
                    ("Date tested", ttk.Entry(grid, textvariable=self.bf_vars["date"], width=11)),
                    ("Body fat %", ttk.Entry(grid, textvariable=self.bf_vars["pct"], width=6)),
                    ("Method", ttk.Combobox(grid, textvariable=self.bf_vars["method"], values=BODYFAT_METHODS, width=20)),
@@ -455,7 +749,8 @@ class App(ttk.Frame):
         self.bw_chart.pack(side="left", fill="both", expand=True)
         self.bf_chart = Chart(charts, height=200)
         self.bf_chart.pack(side="left", fill="both", expand=True, padx=(6, 0))
-        guide = tk.Text(tab, height=9, wrap="word", font=("TkDefaultFont", 9))
+        guide = tk.Text(tab, height=9, wrap="word", font=("TkDefaultFont", 9), bg=BYZ["ivory"], fg=BYZ["ink"],
+                        highlightthickness=1, highlightbackground=BYZ["gold"], relief="flat")
         guide.insert("1.0", BODYFAT_GUIDE)
         guide.configure(state="disabled")
         guide.pack(fill="x", pady=(6, 0))
@@ -471,8 +766,9 @@ class App(ttk.Frame):
     def _save_bf(self):
         v = self.bf_vars
         month, pct, day = _num(v["month"].get()), _num(v["pct"].get()), _date(v["date"].get())
-        if not month or not 1 <= month <= 12 or not pct or not day:
-            messagebox.showerror("Body fat", "Enter month 1-12, date (YYYY-MM-DD) and body fat %", parent=self.root)
+        if not month or not 1 <= month <= MONTHS or not pct or not day:
+            messagebox.showerror("Body fat", f"Enter month 1-{MONTHS}, date (YYYY-MM-DD) and body fat %",
+                                 parent=self.root)
             return
         self.store.set_bodyfat(BodyFat(int(month), day, pct, v["method"].get(), _num(v["weight"].get())))
         v["pct"].set("")
@@ -494,8 +790,8 @@ class App(ttk.Frame):
         ttk.Button(bar, text="Add set", command=self._add_log).pack(side="left", padx=8)
         ttk.Button(bar, text="Delete selected", command=lambda: self._delete_from(self.log_tree)).pack(side="right")
         frame, self.log_tree = self._tree(tab, [("date", "Date"), ("ex", "Exercise"), ("w", "Weight"), ("r", "Reps"),
-                                                ("e1rm", "Est. 1RM"), ("kind", "Type")],
-                                          (100, 220, 80, 60, 80, 90), height=22)
+                                                ("e1rm", "Est. 1RM"), ("kind", "Type"), ("done", "Done")],
+                                          (100, 220, 80, 60, 80, 90, 60), height=22)
         frame.pack(fill="both", expand=True, pady=(6, 0))
 
     def _add_log(self):
@@ -518,12 +814,12 @@ class App(ttk.Frame):
         self.refresh()
 
     # ----- refresh ----------------------------------------------------------------
-    def refresh(self):
+    def refresh(self, rebuild=False):
         entries = self.store.lifts()
         self.height_hint.config(text=f"Height in {self.height_unit}; weights and box heights in "
                                      f"{self.unit} / {self.height_unit}.")
         self._refresh_start(entries)
-        self._refresh_program(entries)
+        self._refresh_program(entries, rebuild)
         self._refresh_progress(entries)
         self._refresh_prs(entries)
         self._refresh_body()
@@ -544,53 +840,44 @@ class App(ttk.Frame):
         self.board.insert("", "end", values=("Total", f"{total:.0f}" if total else "-", "", "", ""))
         self.jumps.delete(*self.jumps.get_children())
         height = _num(self.intake["height"].get())
-        jumps = [e.weight for e in entries if e.exercise == "Box Jump"]
-        best_jump = max(jumps, default=None)
-        for level, desc, target in box_jump_targets(height or 0, self.height_unit):
-            shown = f"{target:g} {self.height_unit}" if height or level == "Beginner" else "enter height"
-            ok = "YES" if best_jump and (height or level == "Beginner") and best_jump >= target else ""
-            self.jumps.insert("", "end", values=(level, desc, shown, ok))
-        best_txt = f"{best_jump:g} {self.height_unit}" if best_jump else "none logged"
-        self.jump_level.config(text=f"Best box jump: {best_txt} - level: "
-                                    f"{box_jump_level(best_jump, height, self.height_unit)}")
+        u = self.height_unit
+        bests = {j: max((e.weight for e in entries if e.exercise == j and e.done), default=None)
+                 for j in JUMP_STANDARDS}
+        targets = {j: dict((lvl, t) for lvl, _, t in jump_targets(j, height, u)) for j in JUMP_STANDARDS}
+        for level in LEVELS:
+            cells = []
+            for j in JUMP_STANDARDS:
+                t = targets[j][level]
+                mark = " \u2713" if t and bests[j] and bests[j] >= t else ""
+                cells.append(f"{t:g} {u}{mark}" if t is not None else "enter height")
+            self.jumps.insert("", "end", values=(level, *cells))
+        self.jumps.insert("", "end", tags=("you",), values=(
+            "Your best", *[f"{bests[j]:g} {u}" if bests[j] else "-" for j in JUMP_STANDARDS]))
+        self.jumps.insert("", "end", tags=("you",), values=(
+            "Your level", *[jump_level(j, bests[j], height, u) for j in JUMP_STANDARDS]))
 
-    def _refresh_program(self, entries):
-        week = self._week()
+    def _refresh_program(self, entries, rebuild=False):
+        week, day = self._week(), self.day_var.get()
         bw = {b.week: b.weight for b in self.store.bodyweights()}
         self.bw_week.set(f"{bw[week]:g}" if week in bw else "")
-        month = next((m for m in range(1, 13) if bodyfat_week(m) == week), None)
+        month = next((m for m in range(1, MONTHS + 1) if bodyfat_week(m) == week), None)
         self.bf_due.config(text=f"Body fat test due this week (month {month}) - enter it on the Body tab"
                            if month else "")
-        self.plan.delete(*self.plan.get_children())
-        self.plan_rows = {}
-        increment = self._increment()
-        height = _num(self.intake["height"].get())
-        best_jump = max((e.weight for e in entries if e.exercise == "Box Jump"), default=0)
-        for s in (s for s in self.sessions if s.week == week):
-            day = s.date(self.start_date)
-            self.plan.insert("", "end", values=(f"{s.day}", day.strftime("%a %b %d"), "", "", "", "", "", ""),
-                             tags=("day",))
-            cs = cycle_start(self.start_date, s.cycle)
-            for i, p in enumerate(s.exercises):
-                info = CATALOG.get(p.exercise)
-                tm, estimated = training_max(entries, p.exercise, cs) if info and info.category in (
-                    "main", "variation") else (None, False)
-                weight = p.weight(tm, increment)
-                target = None
-                if p.exercise == "Box Jump" and height:
-                    target = next((t for _, _, t in box_jump_targets(height, self.height_unit) if t > best_jump), None)
-                shown = (f"{weight:g}" if weight else
-                         f"box {target:g} {self.height_unit}" if target else
-                         "enter maxes" if p.is_loaded else "")
-                logged = [e for e in entries if e.exercise == p.exercise and e.date == day]
-                top = max(logged, key=lambda e: e.e1rm, default=None)
-                iid = f"p-{s.week}-{s.day_index}-{i}"
-                tags = ("plyo",) if info and info.category == "plyo" else ("lift",) if p.kind != "accessory" else ()
-                self.plan.insert("", "end", iid=iid, tags=tags, values=(
-                    "", p.exercise, f"{p.sets} x {p.reps}" if p.sets else "", f"{p.percent:g}%" if p.percent else "",
-                    (f"{tm:.0f}" + ("*" if estimated else "")) if tm else "", shown,
-                    f"{top.weight:g} x {top.reps}" if top else "", p.note))
-                self.plan_rows[iid] = (s, p, weight or target)
+        for i, button in enumerate(self.day_buttons):
+            s = self._session(week, i)
+            planned = sum(max(p.sets, 1) for p in s.exercises)
+            done = sum(e.done for e in self.store.workout(week, i))
+            mark = "  \u2713" if done >= planned else ""
+            button.config(text=f"{s.day}  |  {s.date(self.start_date):%a %b %d}  |  {done}/{planned} sets{mark}")
+        key = (week, day)
+        if key != self.wo_key:
+            if self.wo_dirty:
+                self._save_workout(quiet=True)  # never lose edits when moving to another day or week
+            rebuild = True
+        if rebuild or not self.wo_dirty:
+            self.wo_key = key
+            self._render_workout(self._workout_model(week, day))
+            self.wo_dirty = False
 
     def _refresh_prs(self, entries):
         selected = self.pr_tree.selection()
@@ -616,7 +903,7 @@ class App(ttk.Frame):
             self.bw_tree.insert("", "end", values=(b.week, b.date.isoformat(), f"{b.weight:g}"))
         self.bf_tree.delete(*self.bf_tree.get_children())
         fats = {f.month: f for f in self.store.bodyfats()}
-        for m in range(1, 13):
+        for m in range(1, MONTHS + 1):
             f = fats.get(m)
             due = self.start_date + timedelta(weeks=bodyfat_week(m) - 1)
             self.bf_tree.insert("", "end", values=(m, due.isoformat(), f.date.isoformat() if f else "",
@@ -632,7 +919,9 @@ class App(ttk.Frame):
         self.log_tree.delete(*self.log_tree.get_children())
         for e in reversed(entries):
             self.log_tree.insert("", "end", iid=f"lift-{e.id}", values=(
-                e.date.isoformat(), e.exercise, f"{e.weight:g}", e.reps, f"{e.e1rm:.0f}", e.kind))
+                e.date.isoformat(), e.exercise, f"{e.weight:g}", e.reps,
+                f"{e.e1rm:.0f}" if e.reps else "", e.kind + (f" wk{e.week} d{e.day + 1} s{e.set_no}" if e.week is not None else ""),
+                "\u2713" if e.done else "-"))
 
     # ----- export -----------------------------------------------------------------
     def export_data(self) -> dict:
@@ -643,7 +932,7 @@ class App(ttk.Frame):
                 "name": self.intake["name"].get() or None, "age": _num(self.intake["age"].get()),
                 "sex": self.sex.get() or None}
         base = [e for e in entries if e.kind == "baseline"]
-        rest = [e for e in entries if e.kind != "baseline"]
+        rest = [e for e in entries if e.kind != "baseline" and e.done]
         data["baseline"] = [(e.exercise, e.weight, e.reps) for e in base[:40]]
         data["log"] = [(e.date, e.exercise, e.weight, e.reps, e.note) for e in base[40:] + rest]
         data["bodyweight"] = {b.week: b.weight for b in self.store.bodyweights()}
@@ -669,7 +958,16 @@ class App(ttk.Frame):
 def main() -> None:
     root = tk.Tk()
     root.title(f"{app_name()} {__version__} - Strength, Mass & Power")
-    root.geometry("1180x760")
+    apply_theme(root)
+    icon = load_logo("512")
+    if icon:
+        root.iconphoto(True, icon)  # title bar / taskbar / dock on every OS
+    if sys.platform == "win32":
+        try:
+            root.iconbitmap(default=str(ASSETS / "icon.ico"))  # crisp multi-size icon on Windows
+        except tk.TclError:
+            pass
+    root.geometry("1180x820")
     root.minsize(900, 600)
     app = App(root)
     root.protocol("WM_DELETE_WINDOW", lambda: (app._save_settings(), root.destroy()))

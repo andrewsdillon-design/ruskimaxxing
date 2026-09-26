@@ -23,6 +23,8 @@ permissions:
 
 env:
   APP: RuskiMaxxing  # file-name prefix for the built apps and spreadsheet
+  PYI_ASSETS: --add-data src/ruskimaxxing/assets:ruskimaxxing/assets
+  ICON: src/ruskimaxxing/assets/icon.ico
 
 jobs:
   build:
@@ -53,17 +55,17 @@ jobs:
       - name: Build app (Windows)
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "$APP" packaging/launcher.py
+          pyinstaller --noconfirm --onefile --windowed --name "$APP" $PYI_ASSETS --icon "$ICON" packaging/launcher.py
           mv "dist/$APP.exe" "$APP-${{ matrix.suffix }}"
       - name: Build app (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconfirm --windowed --name "$APP" --osx-bundle-identifier "io.github.$APP" packaging/launcher.py
+          pyinstaller --noconfirm --windowed --name "$APP" $PYI_ASSETS --icon src/ruskimaxxing/assets/icon.icns --osx-bundle-identifier "io.github.$APP" packaging/launcher.py
           ditto -c -k --keepParent "dist/$APP.app" "$APP-${{ matrix.suffix }}"
       - name: Build app (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "$APP" packaging/launcher.py
+          pyinstaller --noconfirm --onefile --windowed --name "$APP" $PYI_ASSETS --icon "$ICON" packaging/launcher.py
           tar -czf "$APP-${{ matrix.suffix }}" -C dist "$APP"
 
       - uses: actions/upload-artifact@v4

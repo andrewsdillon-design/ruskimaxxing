@@ -56,6 +56,11 @@ class LogEntry:
     kind: str = "training"  # "baseline", "training" or "test"
     note: str = ""
     id: int | None = None
+    week: int | None = None  # program week / day / set this set belongs to (None = off-program)
+    day: int | None = None
+    set_no: int | None = None
+    rpe: float | None = None
+    done: bool = True  # only completed sets count toward PRs and maxes
 
     @property
     def e1rm(self) -> float:
@@ -92,7 +97,7 @@ def estimate_1rm(weight: float, reps: int) -> float:
 
 
 def _for(entries, exercise):
-    return [e for e in entries if e.exercise == exercise and e.weight > 0 and e.reps > 0]
+    return [e for e in entries if e.exercise == exercise and e.done and e.weight > 0 and e.reps > 0]
 
 
 def rep_maxes(entries, exercise: str) -> dict[int, LogEntry]:

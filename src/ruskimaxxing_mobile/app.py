@@ -177,8 +177,10 @@ class RuskiMaxxing(toga.App):
         self.blocks = []
         self.week, self.day = self._current_week(), 0
 
-        header = row(style_logo(), col(label(app_name().upper(), 18, True, GOLD),
-                                       label("STRENGTH • MASS • POWER", 9, True, GOLD_LIGHT)),
+        # phone-width header: short title; the edition goes on the subtitle line
+        subtitle = ("SUPERTOTAL \u2022 " if is_supertotal() else "") + "STRENGTH \u2022 MASS \u2022 POWER"
+        header = row(style_logo(), col(label("RUSKIMAXXING", 18, True, GOLD),
+                                       label(subtitle, 9, True, GOLD_LIGHT)),
                      toga.Box(style=Pack(flex=1)), background_color=PURPLE_DARK, gap=8)
         self.tabs = toga.OptionContainer(
             content=[("Workout", self._workout_tab()), ("Progress", self._progress_tab()),

@@ -18,12 +18,12 @@ up to **your VPS**. If they lose their phone, they log in on the new one and eve
 
 nginx picks the site by **domain name**. Your existing site keeps its own `server { server_name ... }`
 block, and this one gets its own block for `api.your-domain.com`. The API itself runs on a private local
-port (`127.0.0.1:8100`) that nothing outside the VPS can reach. So:
+port (`127.0.0.1:8110`) that nothing outside the VPS can reach. So:
 
 ```
                          ┌── server_name your-site.com      → your existing site (unchanged)
 internet → nginx :443 ───┤
-                         └── server_name api.your-domain.com → 127.0.0.1:8100 (RuskiMaxxing Cloud)
+                         └── server_name api.your-domain.com → 127.0.0.1:8110 (RuskiMaxxing Cloud)
 ```
 
 Rules that keep both sites safe:
@@ -32,7 +32,7 @@ Rules that keep both sites safe:
 3. Always run `nginx -t` before `systemctl reload nginx`. The installer does this and stops if the test fails.
 4. Certificates are per domain. `certbot --nginx -d api.your-domain.com` doesn't touch your other certificate.
 5. If your server uses **Apache** or **Caddy** instead of nginx, the idea is the same (a VirtualHost or site
-   block that reverse-proxies to `127.0.0.1:8100`). Ask and I'll write that config.
+   block that reverse-proxies to `127.0.0.1:8110`). Ask and I'll write that config.
 
 ## Install (Ubuntu / Debian VPS)
 

@@ -5,7 +5,7 @@
 #   sudo bash install.sh api.your-domain.com you@your-domain.com
 #
 # What it does: installs PostgreSQL + nginx + certbot if missing, creates a 'ruskimaxxing' system user,
-# database and random password, installs the app in /opt/ruskimaxxing-cloud, runs it on 127.0.0.1:8100
+# database and random password, installs the app in /opt/ruskimaxxing-cloud, runs it on 127.0.0.1:8110
 # with systemd, adds an nginx server block for YOUR API DOMAIN ONLY, tests nginx before reloading,
 # gets an HTTPS certificate for that domain, and schedules nightly backups.
 set -euo pipefail
@@ -23,13 +23,13 @@ for port in 80 443; do
   owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2 || true)
   if [ -n "$owner" ] && [ "$owner" != nginx ]; then
     echo "Port $port is already used by '$owner' (not nginx). This installer uses nginx on 80/443."
-    echo "If that's Caddy, Apache, Traefik or a Docker container, point it at 127.0.0.1:8100 instead -"
+    echo "If that's Caddy, Apache, Traefik or a Docker container, point it at 127.0.0.1:8110 instead -"
     echo "see server/README.md 'Running it next to the site you already host'. Nothing was changed."
     exit 1
   fi
 done
-if ss -ltnH "sport = :8100" 2>/dev/null | grep -q . && ! systemctl is-active --quiet ruskimaxxing-cloud; then
-  echo "Port 8100 is taken by something else; change it in ruskimaxxing-cloud.service and ruskimaxxing-proxy.conf."
+if ss -ltnH "sport = :8110" 2>/dev/null | grep -q . && ! systemctl is-active --quiet ruskimaxxing-cloud; then
+  echo "Port 8110 is taken by something else; change it in ruskimaxxing-cloud.service and ruskimaxxing-proxy.conf."
   exit 1
 fi
 
@@ -79,6 +79,6 @@ install -m 700 "$HERE/backup.sh" /usr/local/sbin/ruskimaxxing-backup
 ( crontab -l 2>/dev/null | grep -v ruskimaxxing-backup; echo "17 3 * * * /usr/local/sbin/ruskimaxxing-backup" ) | crontab -
 
 sleep 2
-curl -fsS "http://127.0.0.1:8100/health" >/dev/null && echo "==> Done. Server is up: https://$DOMAIN/health" \
+curl -fsS "http://127.0.0.1:8110/health" >/dev/null && echo "==> Done. Server is up: https://$DOMAIN/health" \
   || { echo "Service didn't answer - see: journalctl -u ruskimaxxing-cloud -n 50"; exit 1; }
 echo "    In the apps: Setup / Start tab -> Cloud backup -> server address https://$DOMAIN"

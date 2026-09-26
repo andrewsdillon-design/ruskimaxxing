@@ -8,7 +8,7 @@ Group=ruskimaxxing
 WorkingDirectory=/opt/ruskimaxxing-cloud/app/server
 EnvironmentFile=/etc/ruskimaxxing-cloud.env
 # Listens on localhost only - nginx is the only thing that talks to it
-ExecStart=/opt/ruskimaxxing-cloud/venv/bin/uvicorn ruskimaxxing_cloud.main:app --host 127.0.0.1 --port 8100 --workers 2 --proxy-headers
+ExecStart=/opt/ruskimaxxing-cloud/venv/bin/uvicorn ruskimaxxing_cloud.main:app --host 127.0.0.1 --port 8110 --workers 2 --proxy-headers
 Restart=always
 RestartSec=3
 # hardening

@@ -530,8 +530,14 @@ yearly plan. Payments are handled by Stripe - we never see or store your card nu
 <li>Your Stripe customer id and plan status (active / ended and the renewal date).</li>
 <li>Your training log (sets, weights, reps, RPE, notes), bodyweight, body fat measurements and program settings
 such as height and start date.</li></ul>
+<h2>How we use it</h2>
+<ul><li>To back up and restore your data, and to run your account and plan.</li>
+<li>To improve the training programs, including building future years (such as Year 2). For this we only look at
+training results combined across many users and stripped of anything that identifies you: never your email,
+and never one person's log on its own.</li></ul>
 <h2>What we don't do</h2>
-<ul><li>We don't sell or share your data, show ads, or use trackers.</li></ul>
+<ul><li>We don't sell or share your data, show ads, or use trackers.</li>
+<li>We don't publish or share anyone's individual data, including in program research.</li></ul>
 <h2>Your control</h2>
 <ul><li>Delete your account and all synced data at any time from the app (Setup / Start - Cloud backup -
 Delete account). Deletion is immediate and permanent.</li>

@@ -132,7 +132,7 @@ def test_sign_in_with_browser(tmp_path, transport):
     phone.store.set("cloud_url", URL)
     phone.store.set_bodyweight(BodyWeight(1, date(2026, 1, 5), 181))
     link = phone.start_browser_sign_in(phone=True)
-    assert phone.pending_code == link["code"] and "code" in phone.status()
+    assert phone.pending_code == link["code"] and "website" in phone.status()
     assert phone.poll_sign_in() is False                       # still waiting
     browser = transport.client
     code = link["url"].split("code=")[1]

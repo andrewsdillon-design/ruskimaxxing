@@ -77,8 +77,8 @@ class Cloud:
     def status(self) -> str:
         if not self.logged_in:
             if self.pending_code:
-                return f"Finish signing in in your browser (code {self.pending_code})"
-            return "Not signed in - your data is only on this device"
+                return "Finish on the website, then come back here - it connects by itself"
+            return "Not signed in - your data is only on this device. Accounts are free."
         if self.store.get("cloud_backup_active", "1") == "0":
             return f"Signed in as {self.email} - backups aren't active for this account (restore still works)"
         last = self.store.get("cloud_last_sync", "")

@@ -596,8 +596,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             return page("Sign in to RuskiMaxxing", login_form(here))
         return page("Connect the app", f"""
             <p>Signed in as <b>{html.escape(user.email)}</b>.</p>
-            <p>Check that the app shows this code:</p>
-            <p style="font-size:28px;font-weight:bold;letter-spacing:3px">{row.user_code[:4]}-{row.user_code[4:]}</p>
+            <p>Connect your RuskiMaxxing app to this account? (Only if you just tapped the link in your own app.)</p>
             <form method="post" action="/link"><input type="hidden" name="code" value="{row.user_code}">
               <button>Connect this app</button></form>
             <form method="post" action="/account/logout"><input type="hidden" name="next" value="{here}">

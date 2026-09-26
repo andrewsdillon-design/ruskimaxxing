@@ -420,15 +420,8 @@ class App(ttk.Frame):
         if self.cloud.logged_in:
             actions = (("Back up now", self._cloud_sync), ("Log out", self._cloud_logout),
                        ("Delete account (website)", self._cloud_delete))
-        elif self.cloud.pending_code:
-            ttk.Label(self.cloud_btns, text=f"Code {self.cloud.pending_code}", font=("TkDefaultFont", 12, "bold"),
-                      foreground=BYZ["purple"]).pack(side="left", padx=(0, 8))
-            actions = (("Open sign-in page again", lambda: webbrowser.open(self.store.get("cloud_link_url", ""))),
-                       ("Cancel", self._cloud_cancel))
-        else:
-            actions = (("Sign up or log in on the website", self._cloud_sign_in),)
-            ttk.Label(self.cloud_btns, text="  Accounts are free. Your browser opens ruskimaxxing.com, then you come back here.",
-                      foreground="#6b5a45").pack(side="right")
+        else:   # the only thing in the app: a link to the website (accounts are made and managed there)
+            actions = (("Create account or log in at ruskimaxxing.com", self._cloud_sign_in),)
         for text, action in actions:
             ttk.Button(self.cloud_btns, text=text, command=action, style="Small.TButton").pack(side="left",
                                                                                              padx=(0, 4))
@@ -458,15 +451,16 @@ class App(ttk.Frame):
             self.refresh(rebuild=True)
 
     def _cloud_sign_in(self):
+        if self.cloud.pending_code:          # already started: just reopen the same page
+            webbrowser.open(self.store.get("cloud_link_url", ""))
+            self._poll_sign_in()
+            return
+
         def started(link):
             webbrowser.open(link["url"])
             self._poll_sign_in()
             return ""
         self._cloud_run(lambda: started(self.cloud.start_browser_sign_in()))
-
-    def _cloud_cancel(self):
-        self.cloud.cancel_sign_in()
-        self.refresh_cloud()
 
     def _poll_sign_in(self):
         """Check every 2 seconds (off the UI thread) until the website sign-in is finished or expires."""

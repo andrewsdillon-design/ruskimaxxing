@@ -99,32 +99,30 @@ def texts(box):
     return out
 
 
-def test_cloud_sign_in_states(app, monkeypatch):
+def test_cloud_section_is_just_a_link(app, monkeypatch):
     import time
 
     import ruskimaxxing_mobile.app as mod
     opened = []
     monkeypatch.setattr(mod, "open_url", opened.append)
+    monkeypatch.setattr(app, "_watch_sign_in", lambda: None)
     app.refresh_cloud()
-    assert "Sign up or log in on the website" in texts(app.cloud_box)
-    assert not any("Password" in t or "Email" in t for t in texts(app.cloud_box))   # no forms in the app
+    assert texts(app.cloud_box) == ["Create account or log in at ruskimaxxing.com"]   # nothing else
     s = app.store
     s.set("cloud_link_device", "dev"), s.set("cloud_link_code", "ABCD-EFGH")
     s.set("cloud_link_url", "https://api.ruskimaxxing.com/link?code=ABCDEFGH")
     s.set("cloud_link_until", str(time.time() + 600))
-    app.refresh_cloud()
-    shown = texts(app.cloud_box)
-    assert "Code: ABCD-EFGH" in shown and "Open sign-in page again" in shown
-    app._cloud_reopen(None)
+    app.refresh_cloud()                                   # waiting: still just the link, no code or boxes
+    assert texts(app.cloud_box) == ["Create account or log in at ruskimaxxing.com"]
+    assert "come back here" in app.cloud_status.text
+    import asyncio
+    asyncio.run(app._cloud_sign_in(None))                 # tapping it again reopens the same page
     assert opened == ["https://api.ruskimaxxing.com/link?code=ABCDEFGH"]
-    app._cloud_cancel(None)
-    assert "Sign up or log in on the website" in texts(app.cloud_box)
     s.set("cloud_token", "t"), s.set("cloud_email", "me@example.com")
     app.refresh_cloud()
     assert "Back up now" in texts(app.cloud_box) and "me@example.com" in app.cloud_status.text
     app._cloud_delete(None)
     assert opened[-1] == "https://api.ruskimaxxing.com/account/delete"
-
 
 def test_update_banner(app):
     from ruskimaxxing.updates import Update

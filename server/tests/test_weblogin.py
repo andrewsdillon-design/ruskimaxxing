@@ -81,7 +81,7 @@ def test_app_sign_in_with_browser(client):
     r = signup(client, nxt=f"/link?code={code}")
     assert r.headers["location"] == f"/link?code={code}"
     confirm = client.get(r.headers["location"]).text
-    assert start["code"] in confirm and "Connect this app" in confirm
+    assert "Connect this app" in confirm
     done = client.post("/link", data={"code": code}).text
     assert "You're signed in" in done and 'href="ruskimaxxingsupertotal://signed-in"' in done
     token = client.post("/api/link/poll", json={"device_code": device})

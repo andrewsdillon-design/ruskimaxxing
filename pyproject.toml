@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ruskimaxxing"
-version = "2.3.0"
+version = "2.3.1"
 description = "Free 1-year beginner strength, mass and power program with PR tracking: Excel spreadsheet plus Windows, macOS and Linux app."
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,7 +30,7 @@ testpaths = ["tests"]
 [tool.briefcase]
 project_name = "RuskiMaxxing"
 bundle = "io.github.andrewsdillondesign"
-version = "2.3.0"
+version = "2.3.1"
 url = "https://github.com/andrewsdillon-design/ruskimaxxing"
 license = "MIT"
 license-files = ["LICENSE"]

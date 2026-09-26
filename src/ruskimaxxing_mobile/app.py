@@ -669,21 +669,15 @@ class RuskiMaxxing(toga.App):
             self.cloud_box.add(row(button("Back up now", self._cloud_sync, flex=1),
                                    button("Log out", self._cloud_logout, flex=1), gap=6))
             self.cloud_box.add(row(button("Delete account (website)", self._cloud_delete, flex=1)))
-        elif self.cloud.pending_code:
-            self.cloud_box.add(label(f"Code: {self.cloud.pending_code}", 16, True, PURPLE))
-            self.cloud_box.add(label("Sign in or create your account in the browser page that opened, then come "
-                                     "back here. This finishes by itself.", 10))
-            # in case the browser didn't open: the link can be copied from here
-            self.cloud_box.add(toga.TextInput(value=self.store.get("cloud_link_url", ""), readonly=True,
-                                              style=Pack(flex=1)))
-            self.cloud_box.add(row(button("Open sign-in page again", self._cloud_reopen, flex=1),
-                                   button("Cancel", self._cloud_cancel, width=90), gap=6))
         else:
-            self.cloud_box.add(row(button("Sign up or log in on the website", self._cloud_sign_in, flex=1)))
-            self.cloud_box.add(label("Accounts are free. Your browser opens ruskimaxxing.com, then you come back here.", 10,
-                                     color="#6b5a45"))
+            # the only thing in the app: a link to the website (accounts are made and managed there)
+            self.cloud_box.add(row(button("Create account or log in at ruskimaxxing.com", self._cloud_sign_in, flex=1)))
 
     async def _cloud_sign_in(self, widget):
+        if self.cloud.pending_code:          # already started: just reopen the same page
+            open_url(self.store.get("cloud_link_url", ""))
+            self._watch_sign_in()
+            return
         self.cloud_status.text = "Opening your browser..."
         try:
             link = await asyncio.get_running_loop().run_in_executor(
@@ -695,13 +689,6 @@ class RuskiMaxxing(toga.App):
         self.refresh_cloud()
         open_url(link["url"])
         self._watch_sign_in()
-
-    def _cloud_reopen(self, widget):
-        open_url(self.store.get("cloud_link_url", ""))
-
-    def _cloud_cancel(self, widget):
-        self.cloud.cancel_sign_in()
-        self.refresh_cloud()
 
     def _watch_sign_in(self):
         if not getattr(self, "_watching", False):

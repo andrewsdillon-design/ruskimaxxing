@@ -426,8 +426,8 @@ class App(ttk.Frame):
             actions = (("Open sign-in page again", lambda: webbrowser.open(self.store.get("cloud_link_url", ""))),
                        ("Cancel", self._cloud_cancel))
         else:
-            actions = (("Sign in or create account", self._cloud_sign_in),)
-            ttk.Label(self.cloud_btns, text="  Opens the RuskiMaxxing website in your browser. Accounts are free.",
+            actions = (("Sign up or log in on the website", self._cloud_sign_in),)
+            ttk.Label(self.cloud_btns, text="  Accounts are free. Your browser opens ruskimaxxing.com, then you come back here.",
                       foreground="#6b5a45").pack(side="right")
         for text, action in actions:
             ttk.Button(self.cloud_btns, text=text, command=action, style="Small.TButton").pack(side="left",

@@ -106,7 +106,7 @@ def test_cloud_sign_in_states(app, monkeypatch):
     opened = []
     monkeypatch.setattr(mod, "open_url", opened.append)
     app.refresh_cloud()
-    assert "Sign in or create account" in texts(app.cloud_box)
+    assert "Sign up or log in on the website" in texts(app.cloud_box)
     assert not any("Password" in t or "Email" in t for t in texts(app.cloud_box))   # no forms in the app
     s = app.store
     s.set("cloud_link_device", "dev"), s.set("cloud_link_code", "ABCD-EFGH")
@@ -118,7 +118,7 @@ def test_cloud_sign_in_states(app, monkeypatch):
     app._cloud_reopen(None)
     assert opened == ["https://api.ruskimaxxing.com/link?code=ABCDEFGH"]
     app._cloud_cancel(None)
-    assert "Sign in or create account" in texts(app.cloud_box)
+    assert "Sign up or log in on the website" in texts(app.cloud_box)
     s.set("cloud_token", "t"), s.set("cloud_email", "me@example.com")
     app.refresh_cloud()
     assert "Back up now" in texts(app.cloud_box) and "me@example.com" in app.cloud_status.text

@@ -673,11 +673,14 @@ class RuskiMaxxing(toga.App):
             self.cloud_box.add(label(f"Code: {self.cloud.pending_code}", 16, True, PURPLE))
             self.cloud_box.add(label("Sign in or create your account in the browser page that opened, then come "
                                      "back here. This finishes by itself.", 10))
+            # in case the browser didn't open: the link can be copied from here
+            self.cloud_box.add(toga.TextInput(value=self.store.get("cloud_link_url", ""), readonly=True,
+                                              style=Pack(flex=1)))
             self.cloud_box.add(row(button("Open sign-in page again", self._cloud_reopen, flex=1),
                                    button("Cancel", self._cloud_cancel, width=90), gap=6))
         else:
-            self.cloud_box.add(row(button("Sign in or create account", self._cloud_sign_in, flex=1)))
-            self.cloud_box.add(label("Opens the RuskiMaxxing website in your browser. Accounts are free.", 10,
+            self.cloud_box.add(row(button("Sign up or log in on the website", self._cloud_sign_in, flex=1)))
+            self.cloud_box.add(label("Accounts are free. Your browser opens ruskimaxxing.com, then you come back here.", 10,
                                      color="#6b5a45"))
 
     async def _cloud_sign_in(self, widget):

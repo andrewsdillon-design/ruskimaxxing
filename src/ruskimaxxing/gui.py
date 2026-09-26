@@ -7,6 +7,7 @@ All data lives in a local SQLite file (see storage.py).
 """
 
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from datetime import date, timedelta
@@ -22,6 +23,7 @@ from ruskimaxxing.prilepin import ZONES
 from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
+from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, REP_MAX_COUNTS, BodyFat,
                                    BodyWeight, LogEntry, best_e1rm, e1rm_history, new_prs,
                                    rep_maxes)
@@ -274,6 +276,8 @@ class App(ttk.Frame):
         self.height_hint = ttk.Label(box, foreground="#666")
         self.height_hint.grid(row=6, column=0, columnspan=4, sticky="w")
         ttk.Button(box, text="Save intake", command=self._save_intake).grid(row=7, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(box, text="Export Excel spreadsheet...", command=self.export).grid(row=7, column=1, columnspan=2,
+                                                                                    sticky="w", pady=(6, 0))
         self.units.trace_add("write", lambda *_: (self.increment.set(f"{DEFAULT_INCREMENT[self.unit]:g}"),
                                                   self.refresh()))
 
@@ -289,12 +293,12 @@ class App(ttk.Frame):
         ttk.Entry(bar, textvariable=self.base_w, width=8).pack(side="left")
         ttk.Label(bar, text="Reps").pack(side="left", padx=(8, 2))
         ttk.Spinbox(bar, from_=1, to=20, textvariable=self.base_r, width=4).pack(side="left")
-        ttk.Button(bar, text="Add", command=self._add_baseline).pack(side="left", padx=8)
-        ttk.Button(bar, text="Remove selected", command=lambda: self._delete_from(self.base_tree)).pack(side="left")
+        ttk.Button(bar, text="Add", command=self._add_baseline, style="Small.TButton", width=5).pack(side="left", padx=8)
+        ttk.Button(bar, text="Remove", command=lambda: self._delete_from(self.base_tree), style="Small.TButton", width=7).pack(side="left")
         frame, self.base_tree = self._tree(box, [("ex", "Exercise"), ("set", "Set"), ("e1rm", "Est. 1RM")],
-                                           (220, 120, 90), height=8)
+                                           (220, 120, 90), height=5)
         frame.pack(fill="both", expand=True, pady=(6, 0))
-        ttk.Button(left, text="Export Excel spreadsheet...", command=self.export).pack(anchor="w", pady=(8, 0))
+        self._cloud_box(left)
 
         box = ttk.LabelFrame(right, text="PR board", padding=6)
         box.pack(fill="x")
@@ -339,6 +343,94 @@ class App(ttk.Frame):
         self.store.add_lift(entry)
         self.base_w.set("")
         self.refresh()
+
+    # ----- cloud backup ---------------------------------------------------------
+    def _cloud_box(self, parent):
+        self.cloud = Cloud(self.store)
+        box = ttk.LabelFrame(parent, text="3. Cloud backup (optional) - get your data back on a new device", padding=6)
+        box.pack(fill="x", pady=(8, 0))
+        self.cloud_url = tk.StringVar(value=self.store.get("cloud_url", "") or DEFAULT_SERVER)
+        self.cloud_email = tk.StringVar(value=self.store.get("cloud_email", ""))
+        self.cloud_pw = tk.StringVar()
+        ttk.Label(box, text="Server").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        ttk.Entry(box, textvariable=self.cloud_url, width=40).grid(row=0, column=1, columnspan=3, sticky="w")
+        ttk.Label(box, text="Email").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
+        ttk.Entry(box, textvariable=self.cloud_email, width=24).grid(row=1, column=1, sticky="w")
+        ttk.Label(box, text="Password").grid(row=1, column=2, sticky="w", padx=(10, 4))
+        ttk.Entry(box, textvariable=self.cloud_pw, width=18, show="*").grid(row=1, column=3, sticky="w")
+        bar = ttk.Frame(box)
+        bar.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Style(self.root).configure("Small.TButton", padding=(4, 1), font=("TkDefaultFont", 9, "bold"))
+        for text, action in (("Sign up", self._cloud_register), ("Log in", self._cloud_login),
+                             ("Back up", self._cloud_sync), ("Forgot password", self._cloud_reset),
+                             ("Log out", self._cloud_logout), ("Delete account", self._cloud_delete)):
+            ttk.Button(bar, text=text, command=action, style="Small.TButton", width=len(text)).pack(
+                side="left", padx=(0, 2))
+        self.cloud_status = ttk.Label(box, text=self.cloud.status(), foreground="#6b5a45")
+        self.cloud_status.grid(row=3, column=0, columnspan=4, sticky="w", pady=(3, 0))
+
+    def _cloud_run(self, work, done_message=None):
+        """Run a network call off the UI thread, then report back."""
+        self.cloud_status.config(text="Working...")
+
+        def worker():
+            try:
+                result = work()
+                msg = done_message(result) if callable(done_message) else (done_message or "")
+                err = None
+            except CloudError as e:
+                msg, err = "", str(e)
+            self.root.after(0, lambda: self._cloud_done(msg, err))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _cloud_done(self, message, error):
+        self.cloud_pw.set("")
+        self.cloud_status.config(text=self.cloud.status())
+        if error:
+            messagebox.showerror("Cloud backup", error, parent=self.root)
+        else:
+            if message:
+                messagebox.showinfo("Cloud backup", message, parent=self.root)
+            self.refresh(rebuild=True)
+
+    def _cloud_register(self):
+        url, email, pw = self.cloud_url.get(), self.cloud_email.get(), self.cloud_pw.get()
+        self._cloud_run(lambda: (self.cloud.register(url, email, pw), self.cloud.sync())[1],
+                        lambda r: f"Account created and {r[0]} records backed up.")
+
+    def _cloud_login(self):
+        url, email, pw = self.cloud_url.get(), self.cloud_email.get(), self.cloud_pw.get()
+        self._cloud_run(lambda: (self.cloud.login(url, email, pw), self.cloud.sync())[1],
+                        lambda r: f"Logged in. Restored {r[1]} records, backed up {r[0]}.")
+
+    def _cloud_sync(self):
+        self._cloud_run(self.cloud.sync, lambda r: f"Backed up {r[0]}, received {r[1]} records.")
+
+    def _cloud_reset(self):
+        url, email = self.cloud_url.get(), self.cloud_email.get()
+        self._cloud_run(lambda: self.cloud.reset_password(url, email), lambda msg: msg)
+
+    def _cloud_logout(self):
+        self._cloud_run(self.cloud.logout, "Logged out. Your data stays on this device.")
+
+    def _cloud_delete(self):
+        if not messagebox.askyesno("Delete account", "Permanently delete your cloud account and every backup on "
+                                   "the server? Data on this device stays.", parent=self.root):
+            return
+        pw = self.cloud_pw.get()
+        self._cloud_run(lambda: self.cloud.delete_account(pw), "Account and cloud backups deleted.")
+
+    def autosave_workout(self):
+        if self.wo_dirty:
+            self._save_workout(quiet=True)
+
+    def sync_quietly(self):
+        """Best-effort backup on exit; never blocks closing for long or shows errors."""
+        if self.cloud.logged_in:
+            try:
+                self.cloud.sync()
+            except CloudError:
+                pass
 
     # ----- Program tab: per-set workout logger --------------------------------------
     def _program_tab(self, tab):
@@ -864,7 +956,8 @@ def main() -> None:
     root.geometry("1180x820")
     root.minsize(900, 600)
     app = App(root)
-    root.protocol("WM_DELETE_WINDOW", lambda: (app._save_settings(), root.destroy()))
+    root.protocol("WM_DELETE_WINDOW", lambda: (app._save_settings(), app.autosave_workout(), app.sync_quietly(),
+                                               root.destroy()))
     root.mainloop()
 
 

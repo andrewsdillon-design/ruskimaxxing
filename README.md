@@ -46,7 +46,9 @@ The same program, logging and PR tracking as the desktop app, built with BeeWare
   membership ($99/year) and a Mac or CI signing setup. After that, `briefcase package iOS` produces a build
   for TestFlight / the App Store. Until then, every build compiles the iPhone app for the iOS Simulator,
   to prove it builds.
-- **Your data stays on your phone** (a local database). Cloud backup is a planned add-on.
+- **Your data stays on your phone** (a local database). Optional **cloud backup** (Setup → Cloud backup)
+  lets people log in on a new phone and get everything back. It runs on your own server; see
+  [`server/README.md`](server/README.md).
 
 Build it yourself: `pip install briefcase`, then `briefcase dev` (preview on your computer),
 `briefcase run android` (emulator or USB phone) or `briefcase run iOS` (Mac only).
@@ -236,6 +238,13 @@ owns. Specific depictions *are* protected, such as national coats of arms (Russi
 Montenegro) and sports-club marks. So the logo deliberately leaves out their elements: no crowns,
 shield, scepter or orb, and no red field. This is not legal advice. If you plan to register it as a
 trademark, run a search on the USPTO trademark search first.
+
+## Cloud backup server
+
+[`server/`](server/) holds an optional backup/sync server for both apps. People sign up in the app (desktop
+**Start → Cloud backup**, phone **Setup → Cloud backup**). Their data backs up to your VPS, and they get
+it all back by logging in on a new device. It installs with one command next to a site you already host.
+See [`server/README.md`](server/README.md).
 
 ## License
 

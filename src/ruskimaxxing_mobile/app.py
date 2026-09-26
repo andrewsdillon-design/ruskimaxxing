@@ -9,6 +9,7 @@ this file is only the touch-friendly UI. Five tabs:
   Setup     shoulder tip, intake, starting maxes, Prilepin's chart
 """
 
+import asyncio
 import os
 import textwrap
 from datetime import date, timedelta
@@ -26,6 +27,7 @@ from ruskimaxxing.prilepin import ZONES
 from ruskimaxxing.program import (MONTHS, SHOULDER_TIP, WEEKS, bodyfat_week, build_program,
                                   next_monday, week_label)
 from ruskimaxxing.storage import Store
+from ruskimaxxing.sync import DEFAULT_SERVER, Cloud, CloudError
 from ruskimaxxing.tracking import (BODYFAT_GUIDE, BODYFAT_METHODS, BodyFat, BodyWeight, LogEntry,
                                    best_e1rm, e1rm_history, rep_maxes)
 
@@ -172,6 +174,7 @@ class RuskiMaxxing(toga.App):
         data_dir = Path(os.environ.get("RUSKIMAXXING_DATA_DIR") or self.paths.data)
         data_dir.mkdir(parents=True, exist_ok=True)
         self.store = Store(data_dir / "data.db")
+        self.cloud = Cloud(self.store)
         self.sessions = build_program()
         self.dirty = False
         self.blocks = []
@@ -345,6 +348,12 @@ class RuskiMaxxing(toga.App):
             await self.info("Check reps", "Ticked Done but no reps - saved as not done:\n" + "\n".join(bad))
         if prs:
             await self.info("New PR!", "\n".join(prs))
+        if self.cloud.logged_in:  # quiet background backup; errors just wait for the next save
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, self.cloud.sync)
+                self.cloud_status.text = wrap(self.cloud.status(), 10)
+            except CloudError:
+                pass
 
     def _save_bw(self, widget):
         weight = wo.number(text_of(self.bw_input))
@@ -501,6 +510,11 @@ class RuskiMaxxing(toga.App):
         for text, z in zip(("Under 70%", "70-80%", "80-90%", "90%+"), ZONES):
             prilepin.add(label(f"{text}:  {z.reps_per_set[0]}-{z.reps_per_set[1]} reps/set,  "
                                f"{z.optimal_total} optimal ({z.total_range[0]}-{z.total_range[1]})", 11))
+        self.cloud_url = toga.TextInput(value=s.get("cloud_url", "") or DEFAULT_SERVER,
+                                        placeholder="Server, e.g. https://api.your-domain.com")
+        self.cloud_email = toga.TextInput(value=s.get("cloud_email", ""), placeholder="Email")
+        self.cloud_pw = toga.PasswordInput(placeholder="Password (8+ characters)")
+        self.cloud_status = label(Cloud(s).status(), 10, color="#6b5a45")
         tip = toga.Label(wrap(SHOULDER_TIP, 10), style=Pack(font_size=10, font_weight="bold", color=IVORY,
                                                             background_color=CRIMSON, margin=6))
         return toga.ScrollContainer(horizontal=False, content=col(
@@ -520,6 +534,14 @@ class RuskiMaxxing(toga.App):
             row(label("Weight", 11), self.base_w, label("Reps", 11), self.base_r, gap=6),
             row(button("Add starting max", self._add_base, flex=1)),
             self.base_list,
+            section("3. Cloud backup (optional)"),
+            label("Back up to the cloud so you can log in on a new phone and get everything back.", 10),
+            self.cloud_url, self.cloud_email, self.cloud_pw,
+            row(button("Sign up", self._cloud_register, flex=1), button("Log in", self._cloud_login, flex=1), gap=6),
+            row(button("Back up now", self._cloud_sync, flex=1), button("Log out", self._cloud_logout, flex=1), gap=6),
+            row(button("Forgot password", self._cloud_reset, flex=1),
+                button("Delete account", self._cloud_delete, flex=1), gap=6),
+            self.cloud_status,
             section("Prilepin's chart"),
             prilepin,
             margin=8, gap=4))
@@ -557,6 +579,51 @@ class RuskiMaxxing(toga.App):
     def _delete_base(self, entry_id):
         self.store.delete_lift(entry_id)
         self.refresh_all()
+
+    async def _cloud(self, work, done=None):
+        """Run a network call in the background, then report."""
+        self.cloud_status.text = "Working..."
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(None, work)
+        except CloudError as e:
+            self.cloud_status.text = wrap(self.cloud.status(), 10)
+            await self.main_window.dialog(toga.ErrorDialog("Cloud backup", str(e)))
+            return
+        self.cloud_pw.value = ""
+        self.cloud_status.text = wrap(self.cloud.status(), 10)
+        self.refresh_all()
+        message = done(result) if callable(done) else done
+        if message:
+            await self.info("Cloud backup", message)
+
+    async def _cloud_register(self, widget):
+        url, email, pw = self.cloud_url.value, self.cloud_email.value, self.cloud_pw.value
+        await self._cloud(lambda: (self.cloud.register(url, email, pw), self.cloud.sync())[1],
+                          lambda r: f"Account created and {r[0]} records backed up.")
+
+    async def _cloud_login(self, widget):
+        url, email, pw = self.cloud_url.value, self.cloud_email.value, self.cloud_pw.value
+        await self._cloud(lambda: (self.cloud.login(url, email, pw), self.cloud.sync())[1],
+                          lambda r: f"Logged in. Restored {r[1]} records, backed up {r[0]}.")
+
+    async def _cloud_sync(self, widget):
+        self.autosave()
+        await self._cloud(self.cloud.sync, lambda r: f"Backed up {r[0]}, received {r[1]} records.")
+
+    async def _cloud_reset(self, widget):
+        url, email = self.cloud_url.value, self.cloud_email.value
+        await self._cloud(lambda: self.cloud.reset_password(url, email), lambda msg: msg)
+
+    async def _cloud_logout(self, widget):
+        await self._cloud(self.cloud.logout, "Logged out. Your data stays on this phone.")
+
+    async def _cloud_delete(self, widget):
+        sure = await self.main_window.dialog(toga.QuestionDialog(
+            "Delete account", "Permanently delete your cloud account and every backup on the server? "
+                              "Data on this phone stays."))
+        if sure:
+            pw = self.cloud_pw.value
+            await self._cloud(lambda: self.cloud.delete_account(pw), "Account and cloud backups deleted.")
 
     def refresh_setup(self):
         self.base_list.clear()

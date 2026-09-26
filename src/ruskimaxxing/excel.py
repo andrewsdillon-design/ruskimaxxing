@@ -18,9 +18,8 @@ Microsoft 365, LibreOffice or Google Sheets. Sheet order:
   Progress        charts: strength vs bodyweight, bodyweight, body fat / lean mass
 """
 
+import os
 import re
-import shutil
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -732,14 +731,16 @@ def _order_font(match: re.Match) -> str:
 
 
 def _fix_font_order(path: Path) -> None:
-    tmp = Path(tempfile.mkstemp(suffix=".xlsx")[1])
+    # Write next to the target and swap it in. (No open temp-file handles: Windows refuses
+    # to move a file that is still open.)
+    tmp = path.with_name(path.name + ".tmp")
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
         for item in src.infolist():
             data = src.read(item.filename)
             if item.filename == "xl/styles.xml":
                 data = re.sub(r"<font>(.*?)</font>", _order_font, data.decode("utf-8")).encode("utf-8")
             dst.writestr(item, data)
-    shutil.move(tmp, path)
+    os.replace(tmp, path)
 
 
 def build_workbook(path: str | Path, data: dict | None = None) -> Path:

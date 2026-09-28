@@ -74,6 +74,8 @@ echo "==> HTTPS certificate for $DOMAIN (your other site's certificate is not to
 certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos --non-interactive --redirect || \
   echo "    certbot failed - check that $DOMAIN's DNS A record points at this server, then re-run"
 
+install -m 700 "$HERE/admin.sh" /usr/local/sbin/ruskimaxxing-admin
+
 echo "==> Nightly backups"
 install -m 700 "$HERE/backup.sh" /usr/local/sbin/ruskimaxxing-backup
 ( crontab -l 2>/dev/null | grep -v ruskimaxxing-backup; echo "17 3 * * * /usr/local/sbin/ruskimaxxing-backup" ) | crontab -

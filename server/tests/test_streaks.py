@@ -301,6 +301,81 @@ def test_streak_rejects_non_image_upload(client, app, monkeypatch):
     assert r.status_code == 400
 
 
+def test_streak_rejects_offset_outside_valid_range(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    for bad_offset in (-721, 841):
+        r = client.post("/api/streak", headers=headers,
+                        data={"local_date": "2026-03-02", "utc_offset_minutes": str(bad_offset)},
+                        files={"photo": ("a.jpg", random_jpeg_bytes(seed=20), "image/jpeg")})
+        assert r.status_code == 400 and "invalid time zone" in r.json()["detail"].lower()
+
+
+def test_streak_rejects_local_date_more_than_a_day_off_regardless_of_offset(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)  # server UTC date is 2026-03-02
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    # claim a local_date 2 days away, paired with an offset engineered to satisfy the naive equality check
+    r = client.post("/api/streak", headers=headers,
+                    data={"local_date": "2026-03-04", "utc_offset_minutes": "840"},
+                    files={"photo": ("a.jpg", random_jpeg_bytes(seed=21), "image/jpeg")})
+    assert r.status_code == 400 and "invalid time zone" in r.json()["detail"].lower()
+
+
+def test_streak_rejects_oversized_upload_without_reading_it_all(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    oversized = b"\xff" * (m.STREAK_MAX_UPLOAD_BYTES + 1024)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", oversized, "image/jpeg")})
+    assert r.status_code == 400 and "too large" in r.json()["detail"].lower()
+
+
+def test_streak_rejects_huge_dimension_image(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    # monkeypatch the pixel limit low so a small, cheap-to-generate image still trips the decompression-bomb
+    # guard - this exercises the same code path a real 8000x8000 photo would (400, never 500)
+    monkeypatch.setattr(m, "STREAK_MAX_PIXELS", 10)
+    photo = random_jpeg_bytes(seed=22)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 400
+
+
+def test_streak_duplicate_via_unique_constraint_is_treated_as_already_checked_in(client, app, monkeypatch):
+    """Simulate a race: a StreakCheck for today already exists (as if a concurrent request just inserted it),
+    bypassing the earlier existence check - the DB unique constraint + IntegrityError handling must still
+    produce the normal "already checked in today" 400, not a 500."""
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, user_id = register_with_program_year(client, app, monkeypatch)
+    with m.Session(app.state.engine) as s:
+        s.add(m.StreakCheck(user_id=user_id, day=date(2026, 3, 2), received_at=m.utcnow(), phash="0" * 16))
+        s.commit()
+
+    # force the earlier explicit existence check to miss, as if the concurrent insert weren't visible yet
+    orig_scalar = m.Session.scalar
+
+    def racy_scalar(self, stmt, *a, **kw):
+        if "streak_checks" in str(stmt).lower():
+            return None
+        return orig_scalar(self, stmt, *a, **kw)
+
+    monkeypatch.setattr(m.Session, "scalar", racy_scalar)
+    photo = random_jpeg_bytes(seed=23)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 400 and "already checked in" in r.json()["detail"].lower()
+
+    with m.Session(app.state.engine) as s:
+        rows = s.scalars(select(m.StreakCheck).where(m.StreakCheck.user_id == user_id)).all()
+        assert len(rows) == 1  # no duplicate row was created
+
+
 def test_streak_never_persists_the_photo_bytes(client, app, monkeypatch):
     """No column exists to store the photo, and the handler only ever keeps day/received_at/phash."""
     clock = Clock(FIXED_NOW)

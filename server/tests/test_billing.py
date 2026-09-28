@@ -154,9 +154,17 @@ def test_setup_stripe_script_creates_then_reuses(tmp_path):
             made[self.key].append(obj)
             return obj
 
+        def modify(self, id, **kw):
+            for obj in made[self.key]:
+                if obj.id == id:
+                    for k, v in kw.items():
+                        setattr(obj, k, v)
+                    return obj
+            return None
+
     fake = NS(Price=Lister("price", lambda kw: NS(id="price_1", **kw)),
               Product=NS(create=lambda **kw: NS(id="prod_1")),
-              WebhookEndpoint=Lister("hook", lambda kw: NS(id="we_1", secret="whsec_1", url=kw["url"])),
+              WebhookEndpoint=Lister("hook", lambda kw: NS(id="we_1", secret="whsec_1", **kw)),
               billing_portal=NS(Configuration=Lister("cfg", lambda kw: NS(id="bpc_1"))))
     env = mod.setup(fake, "https://api.x.com/")
     assert env == {"STRIPE_PRICE_ID": "price_1", "STRIPE_WEBHOOK_SECRET": "whsec_1", "STRIPE_PORTAL_CONFIG": "bpc_1"}

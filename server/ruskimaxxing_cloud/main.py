@@ -35,6 +35,7 @@ import os
 import secrets
 import smtplib
 import time
+import warnings
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -46,6 +47,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import (Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
                         delete, func, inspect, select, text)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from .streaks import compute_streak
@@ -77,6 +79,9 @@ STREAK_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 STREAK_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 STREAK_EXIF_TOLERANCE = timedelta(hours=2)
 STREAK_PHASH_MIN_DISTANCE = 10        # Hamming distance: below this, a photo is treated as a duplicate
+STREAK_MAX_PIXELS = 30_000_000        # tighter decompression-bomb limit than Pillow's default, for this upload only
+STREAK_OFFSET_MIN_MINUTES = -720      # UTC-12:00
+STREAK_OFFSET_MAX_MINUTES = 840       # UTC+14:00
 CALL_PRICE_PLAIN = "$99/hour"         # Phase 3 - not purchasable yet, shown as context for the discount
 
 
@@ -193,16 +198,17 @@ class AuditLog(Base):
 
 
 class ProgramPurchase(Base):
-    """A one-time purchase of a program year. Uniqueness of (user, year) while not refunded, and idempotency
-    on stripe_session_id, are enforced in code (see owned_years / the webhook handler) rather than as DB
-    constraints, since a refunded row must be able to coexist with a later repurchase of the same year."""
+    """A one-time purchase of a program year. Uniqueness of (user, year) while not refunded is enforced in
+    code (see owned_years), since a refunded row must be able to coexist with a later repurchase of the same
+    year. Idempotency on stripe_session_id is enforced both in code (see the webhook handler) and by a DB
+    unique constraint, so a concurrent duplicate delivery can't create two rows."""
     __tablename__ = "program_purchases"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     year: Mapped[int] = mapped_column(Integer)
     amount_cents: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(10), default="usd")
-    stripe_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    stripe_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     stripe_payment_intent: Mapped[str | None] = mapped_column(String(100), nullable=True)
     purchased_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     refunded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -221,8 +227,10 @@ class ConsentEvent(Base):
 
 class StreakCheck(Base):
     """One accepted training-day photo check. The photo itself is never stored - only the day, when we got
-    it, and a perceptual hash used to reject a duplicate photo of an earlier session."""
+    it, and a perceptual hash used to reject a duplicate photo of an earlier session. A DB unique constraint
+    on (user_id, day) backs up the in-code "already checked in today" check against a concurrent duplicate."""
     __tablename__ = "streak_checks"
+    __table_args__ = (UniqueConstraint("user_id", "day"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     day: Mapped[date] = mapped_column(Date)
@@ -421,13 +429,32 @@ def streak_summary(s: Session, user: "User") -> dict | None:
            "next_discount_at_days": r.next_discount_at_days}
 
 
+class PhotoTooLarge(ValueError):
+    """A streak photo's pixel dimensions exceed STREAK_MAX_PIXELS."""
+
+
 def compute_dhash(image_bytes: bytes) -> str:
-    """64-bit difference hash (dHash), as a 16-char hex string. Never touches disk."""
+    """64-bit difference hash (dHash), as a 16-char hex string. Never touches disk.
+
+    Uses a tighter decompression-bomb pixel limit than Pillow's default (STREAK_MAX_PIXELS), scoped to this
+    call only: Image.MAX_IMAGE_PIXELS is restored afterward, and Pillow's DecompressionBombWarning (raised
+    for images between 1x and 2x the limit) is turned into an error so oversized images always fail loudly
+    instead of silently decoding a huge image."""
     from PIL import Image
-    with Image.open(io.BytesIO(image_bytes)) as img:
-        img.load()
-        small = img.convert("L").resize((9, 8), Image.LANCZOS)
-        pixels = small.tobytes()  # mode "L": one byte (0-255) per pixel
+    old_limit = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = STREAK_MAX_PIXELS
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                width, height = img.size
+                if width * height > STREAK_MAX_PIXELS:
+                    raise PhotoTooLarge(f"{width}x{height} exceeds the {STREAK_MAX_PIXELS}-pixel limit")
+                img.load()
+                small = img.convert("L").resize((9, 8), Image.LANCZOS)
+                pixels = small.tobytes()  # mode "L": one byte (0-255) per pixel
+    finally:
+        Image.MAX_IMAGE_PIXELS = old_limit
     bits = 0
     for row in range(8):
         for col in range(8):
@@ -525,7 +552,14 @@ def stripe_refund_purchase(purchase: "ProgramPurchase") -> bool:
 
 
 def handle_program_year_checkout(s: Session, obj: dict, request: Request | None = None) -> None:
-    """checkout.session.completed for a one-time program-year purchase. Idempotent on the Stripe session id."""
+    """checkout.session.completed / checkout.session.async_payment_succeeded for a one-time program-year
+    purchase. Only grants the year (and coaching consent) once the checkout session actually paid: async
+    payment methods (e.g. bank debits) reach checkout.session.completed with payment_status "unpaid" and only
+    become "paid" later, on checkout.session.async_payment_succeeded - both events call this function, and
+    nothing is granted until payment_status is "paid". Idempotent on the Stripe session id, including a
+    concurrent duplicate delivery (the DB unique constraint on stripe_session_id backs up the check below)."""
+    if obj.get("payment_status") != "paid":
+        return
     session_id = obj.get("id")
     if session_id and s.scalar(select(ProgramPurchase).where(ProgramPurchase.stripe_session_id == session_id)):
         return
@@ -545,6 +579,12 @@ def handle_program_year_checkout(s: Session, obj: dict, request: Request | None 
     s.add(ProgramPurchase(user_id=user.id, year=year, amount_cents=amount_cents,
                           currency=(obj.get("currency") or "usd"), stripe_session_id=session_id,
                           stripe_payment_intent=obj.get("payment_intent"), purchased_at=utcnow()))
+    try:
+        s.flush()
+    except IntegrityError:
+        # a concurrent delivery of the same checkout session already recorded this purchase
+        s.rollback()
+        return
     consent_version = metadata.get("consent_version") or CONSENT_VERSION
     if not user.coaching_consent_at:
         user.coaching_consent_at = utcnow()
@@ -777,6 +817,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     async def api_streak(request: Request, photo: UploadFile = File(...), local_date: str = Form(...),
                          utc_offset_minutes: int = Form(...), user: User = Depends(current_user),
                          s: Session = Depends(db)):
+        if not (STREAK_OFFSET_MIN_MINUTES <= utc_offset_minutes <= STREAK_OFFSET_MAX_MINUTES):
+            raise HTTPException(400, "Invalid time zone")
         if max(owned_years(s, user)) <= 1:
             raise HTTPException(400, "Streaks are part of a paid program year.")
         start = get_program_start(s, user)
@@ -786,6 +828,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
             client_date = date.fromisoformat(local_date)
         except ValueError:
             raise HTTPException(400, "Bad date") from None
+        if abs((client_date - utcnow().date()).days) > 1:
+            # regardless of the claimed offset, a device can't legitimately be more than a day off from the
+            # server's UTC date
+            raise HTTPException(400, "Invalid time zone")
         server_local_date = (utcnow() + timedelta(minutes=utc_offset_minutes)).date()
         if client_date != server_local_date:
             raise HTTPException(400, "That doesn't match the current time - check your device's clock.")
@@ -796,7 +842,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(400, "You already checked in today.")
         if photo.content_type not in STREAK_ALLOWED_CONTENT_TYPES:
             raise HTTPException(400, "Upload a JPEG or PNG photo.")
-        body = await photo.read()
+        body = await photo.read(STREAK_MAX_UPLOAD_BYTES + 1)  # bounded read: never buffer more than max+1 bytes
         if len(body) > STREAK_MAX_UPLOAD_BYTES:
             raise HTTPException(400, "That photo is too large (8 MB max).")
         try:
@@ -811,7 +857,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if any(hamming_distance(phash, prev) < STREAK_PHASH_MIN_DISTANCE for prev in previous):
             raise HTTPException(400, "That looks like a photo you've already used - take a fresh one.")
         s.add(StreakCheck(user_id=user.id, day=client_date, received_at=utcnow(), phash=phash))
-        s.commit()
+        try:
+            s.commit()
+        except IntegrityError:
+            # a concurrent request already recorded today's check (DB unique constraint on user_id/day)
+            s.rollback()
+            raise HTTPException(400, "You already checked in today.") from None
         del body  # never persisted - kept in memory only for the checks above
         checks = list(s.scalars(select(StreakCheck.day).where(StreakCheck.user_id == user.id)).all())
         result = compute_streak(checks, start, utcnow().date())
@@ -1241,6 +1292,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
                         send_mail(user.email, "Your RuskiMaxxing Cloud Backup plan",
                                   PURCHASE_EMAIL.format(base=public_url(request), contact=contact_email(),
                                                         days=REFUND_DAYS))
+        elif kind == "checkout.session.async_payment_succeeded":
+            # a program-year checkout that used an async payment method (e.g. a bank debit): the session
+            # completed earlier as "unpaid" and is only paid now - same grant logic, same idempotency
+            metadata = obj.get("metadata") or {}
+            if obj.get("mode") == "payment" and metadata.get("kind") == "program_year":
+                handle_program_year_checkout(s, obj, request)
+        elif kind == "checkout.session.async_payment_failed":
+            # the async payment never went through: nothing was granted (checkout.session.completed for this
+            # session came in as "unpaid" and didn't grant either) - just log it, nothing to undo
+            logger.info("Stripe checkout session %s failed its async payment", obj.get("id"))
         elif kind in ("customer.subscription.created", "customer.subscription.updated",
                       "customer.subscription.deleted"):
             user_id = ((obj.get("metadata") or {}).get("user_id"))

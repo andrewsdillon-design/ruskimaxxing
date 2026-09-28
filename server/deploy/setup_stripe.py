@@ -29,8 +29,9 @@ from pathlib import Path
 LOOKUP_KEY = "ruskimaxxing_cloud_yearly"
 PRICE_CENTS, CURRENCY = 2000, "usd"
 PROGRAM_YEAR_LOOKUP_PREFIX = "ruskimaxxing_program_year"   # kept in sync with main.py by hand - simple constant
-EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated",
-          "customer.subscription.deleted"]
+EVENTS = ["checkout.session.completed", "checkout.session.async_payment_succeeded",
+          "checkout.session.async_payment_failed", "customer.subscription.created",
+          "customer.subscription.updated", "customer.subscription.deleted"]
 
 
 def program_year_prices() -> dict:
@@ -83,8 +84,16 @@ def setup(stripe, api_url: str) -> dict:
     hook_url = f"{api_url}/stripe/webhook"
     existing = [w for w in stripe.WebhookEndpoint.list(limit=100).data if w.url == hook_url]
     if existing:
-        print(f"Webhook for {hook_url} already exists ({existing[0].id}). Its signing secret can only be read in "
-              "the Stripe Dashboard (Developers -> Webhooks); keep the STRIPE_WEBHOOK_SECRET you already have.")
+        hook = existing[0]
+        current_events = set(getattr(hook, "enabled_events", None) or [])
+        if current_events != set(EVENTS):
+            stripe.WebhookEndpoint.modify(hook.id, enabled_events=EVENTS)
+            print(f"Updated webhook {hook.id} -> {hook_url}: enabled_events changed to match the events this "
+                  f"server now sends ({', '.join(EVENTS)}).")
+        else:
+            print(f"Webhook for {hook_url} already exists ({hook.id}) with the right events. Its signing "
+                  "secret can only be read in the Stripe Dashboard (Developers -> Webhooks); keep the "
+                  "STRIPE_WEBHOOK_SECRET you already have.")
     else:
         hook = stripe.WebhookEndpoint.create(url=hook_url, enabled_events=EVENTS,
                                              description="RuskiMaxxing Cloud plan status")

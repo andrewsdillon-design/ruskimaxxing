@@ -63,9 +63,10 @@ def webhook(client, event):
 
 
 def program_year_event(user_id, year, session_id="cs_1", consent_version="2026-09-28", amount_total=19900,
-                       payment_intent="pi_1"):
-    return {"id": session_id, "object": "event", "type": "checkout.session.completed",
+                       payment_intent="pi_1", event_type="checkout.session.completed", payment_status="paid"):
+    return {"id": session_id, "object": "event", "type": event_type,
            "data": {"object": {"id": session_id, "object": "checkout.session", "mode": "payment",
+                               "payment_status": payment_status,
                                "client_reference_id": str(user_id), "customer": "cus_1",
                                "payment_intent": payment_intent, "amount_total": amount_total, "currency": "usd",
                                "metadata": {"kind": "program_year", "year": str(year), "user_id": str(user_id),
@@ -127,6 +128,135 @@ def test_webhook_creates_purchase_and_grants_consent_idempotently(client, app):
 
     me = client.get("/api/me", headers=_auth_header(client, "lifter@example.com")).json()
     assert me["program_years"] == [1, 2]
+
+
+def test_webhook_unpaid_checkout_grants_nothing_until_async_payment_succeeds(client, app):
+    """checkout.session.completed with payment_status "unpaid" (an async payment method still pending) must
+    not grant the program year or consent. Only checkout.session.async_payment_succeeded (same session,
+    now paid) grants it - once."""
+    cookies = register_and_login(client)
+    with m.Session(app.state.engine) as s:
+        user_id = s.scalar(select(m.User.id).where(m.User.email == "lifter@example.com"))
+
+    r = webhook(client, program_year_event(user_id, 2, payment_status="unpaid"))
+    assert r.status_code == 200
+    with m.Session(app.state.engine) as s:
+        assert s.scalar(select(m.ProgramPurchase).where(m.ProgramPurchase.user_id == user_id)) is None
+        user = s.get(m.User, user_id)
+        assert user.coaching_consent_at is None
+
+    r = webhook(client, program_year_event(user_id, 2, event_type="checkout.session.async_payment_succeeded"))
+    assert r.status_code == 200
+    with m.Session(app.state.engine) as s:
+        purchases = s.scalars(select(m.ProgramPurchase).where(m.ProgramPurchase.user_id == user_id)).all()
+        assert len(purchases) == 1 and purchases[0].year == 2
+        user = s.get(m.User, user_id)
+        assert user.coaching_consent_at is not None
+
+    # a duplicate delivery of the async-succeeded event (or a replayed completed event) must not double-grant
+    webhook(client, program_year_event(user_id, 2, event_type="checkout.session.async_payment_succeeded"))
+    webhook(client, program_year_event(user_id, 2, payment_status="paid"))
+    with m.Session(app.state.engine) as s:
+        purchases = s.scalars(select(m.ProgramPurchase).where(m.ProgramPurchase.user_id == user_id)).all()
+        assert len(purchases) == 1
+
+
+def test_webhook_async_payment_failed_grants_nothing(client, app):
+    cookies = register_and_login(client)
+    with m.Session(app.state.engine) as s:
+        user_id = s.scalar(select(m.User.id).where(m.User.email == "lifter@example.com"))
+
+    webhook(client, program_year_event(user_id, 2, payment_status="unpaid"))
+    r = webhook(client, program_year_event(user_id, 2, event_type="checkout.session.async_payment_failed",
+                                           payment_status="unpaid"))
+    assert r.status_code == 200
+    with m.Session(app.state.engine) as s:
+        assert s.scalar(select(m.ProgramPurchase).where(m.ProgramPurchase.user_id == user_id)) is None
+        user = s.get(m.User, user_id)
+        assert user.coaching_consent_at is None
+
+
+def test_subscription_checkout_completed_still_works_without_payment_status(client, app):
+    """The subscription flow's checkout.session.completed payload has no payment_status/mode=program_year -
+    it must keep working exactly as before (see test_billing.py::test_webhook_activates_and_lapses_plan)."""
+    cookies = register_and_login(client)
+    with m.Session(app.state.engine) as s:
+        user_id = s.scalar(select(m.User.id).where(m.User.email == "lifter@example.com"))
+    r = webhook(client, {"id": "evt_sub", "object": "event", "type": "checkout.session.completed",
+                         "data": {"object": {"client_reference_id": str(user_id), "customer": "cus_sub"}}})
+    assert r.status_code == 200
+    with m.Session(app.state.engine) as s:
+        user = s.get(m.User, user_id)
+        assert user.stripe_customer == "cus_sub"
+
+
+def test_concurrent_duplicate_webhook_delivery_is_idempotent_via_db_constraint(client, app, monkeypatch):
+    """Simulate two deliveries racing past the in-code existence check at the same time: the DB unique
+    constraint on stripe_session_id must stop the second insert from creating a duplicate row, and the code
+    must catch that IntegrityError and treat it as "already recorded" rather than raising."""
+    cookies = register_and_login(client)
+    with m.Session(app.state.engine) as s:
+        user_id = s.scalar(select(m.User.id).where(m.User.email == "lifter@example.com"))
+    obj = program_year_event(user_id, 2)["data"]["object"]
+
+    with m.Session(app.state.engine) as s:
+        m.handle_program_year_checkout(s, obj)
+        s.commit()
+
+    # force the pre-insert existence check to miss, as if a concurrent request's row wasn't visible yet -
+    # the only thing left to prevent a duplicate is the DB unique constraint + the IntegrityError handling
+    orig_scalar = m.Session.scalar
+
+    def racy_scalar(self, stmt, *a, **kw):
+        if "program_purchases" in str(stmt).lower():
+            return None
+        return orig_scalar(self, stmt, *a, **kw)
+
+    monkeypatch.setattr(m.Session, "scalar", racy_scalar)
+    with m.Session(app.state.engine) as s:
+        m.handle_program_year_checkout(s, obj)  # must not raise - the IntegrityError is caught internally
+    monkeypatch.undo()
+
+    with m.Session(app.state.engine) as s:
+        purchases = s.scalars(select(m.ProgramPurchase).where(m.ProgramPurchase.user_id == user_id)).all()
+        assert len(purchases) == 1
+
+
+def test_setup_stripe_updates_enabled_events_on_existing_webhook(monkeypatch):
+    """setup_stripe.py must update (not just create) a pre-existing webhook's enabled_events when the event
+    list this server sends has changed since the webhook was first set up."""
+    import importlib.util
+    from types import SimpleNamespace as NS
+    spec = importlib.util.spec_from_file_location("setup_stripe", Path(__file__).parent.parent / "deploy" /
+                                                  "setup_stripe.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    hook = NS(id="we_old", url="https://api.x.com/stripe/webhook",
+             enabled_events=["checkout.session.completed", "customer.subscription.created",
+                             "customer.subscription.updated", "customer.subscription.deleted"])
+    modify_calls = []
+
+    def modify(id, **kw):
+        modify_calls.append((id, kw))
+        hook.enabled_events = kw["enabled_events"]
+        return hook
+
+    fake = NS(Price=NS(list=lambda **kw: NS(data=[NS(id="price_1", unit_amount=2000)])),
+             Product=NS(create=lambda **kw: NS(id="prod_1")),
+             WebhookEndpoint=NS(list=lambda **kw: NS(data=[hook]), create=lambda **kw: (_ for _ in ()).throw(
+                 AssertionError("should not create a new webhook when one already exists")), modify=modify),
+             billing_portal=NS(Configuration=NS(list=lambda **kw: NS(data=[NS(id="bpc_1")]))))
+
+    env = mod.setup(fake, "https://api.x.com")
+    assert modify_calls and modify_calls[0][0] == "we_old"
+    assert set(modify_calls[0][1]["enabled_events"]) == set(mod.EVENTS)
+    assert "STRIPE_WEBHOOK_SECRET" not in env  # secret unchanged - only enabled_events was updated
+
+    # idempotent: running it again with events now matching must not call modify again
+    modify_calls.clear()
+    mod.setup(fake, "https://api.x.com")
+    assert modify_calls == []
 
 
 def _auth_header(client, email):

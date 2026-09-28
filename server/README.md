@@ -119,13 +119,9 @@ sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.c
 An admin backend lives at `https://api.your-domain.com/admin` (separate cookie/login from lifters'
 accounts, its own 12-hour session, and a required authenticator-app code on every login).
 
-**Bootstrap the first admin** from the app's own environment, run from `server/` inside the app checkout
-(module lookup needs that working directory - it matches `WorkingDirectory` in
-`deploy/ruskimaxxing-cloud.service`):
+**Bootstrap the first admin** (the installer adds this helper; it runs with the service's own settings and user):
 ```bash
-sudo -u ruskimaxxing bash -c 'cd /opt/ruskimaxxing-cloud/app/server && set -a; \
-  . /etc/ruskimaxxing-cloud.env; \
-  /opt/ruskimaxxing-cloud/venv/bin/python -m ruskimaxxing_cloud.admin_cli create-admin you@x.com'
+sudo ruskimaxxing-admin create-admin you@x.com     # also: reset-totp you@x.com, demote you@x.com
 ```
 It asks for a password (12+ characters) if the account doesn't exist yet, or just promotes it if it does,
 then prints a QR code and a manual-entry secret for your authenticator app (Google Authenticator, 1Password,

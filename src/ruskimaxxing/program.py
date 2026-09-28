@@ -108,6 +108,8 @@ class Prescription:
     percent: float | None = None  # % of this exercise's training max
     note: str = ""
     kind: str = "main"  # "main", "variation", "accessory", "plyo" or "test"
+    rpe_target: tuple[float, float] | None = None  # (low, high) target RPE; Years 2-3 autoregulation
+    reason: str = ""  # why this slot exists (weak-point priority, stalled-lift rotation, ...)
 
     @property
     def is_loaded(self) -> bool:

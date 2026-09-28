@@ -507,9 +507,16 @@ def stripe_refund_purchase(purchase: "ProgramPurchase") -> bool:
     stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
     if not purchase.stripe_payment_intent:
         return False
+    # current Stripe API versions have no `charges` list on a PaymentIntent - use latest_charge, and attribute
+    # access (stripe-python 13+ objects aren't dicts)
     intent = stripe.PaymentIntent.retrieve(purchase.stripe_payment_intent)
-    charges = (intent.get("charges") or {}).get("data") or []
-    if not charges or not charges[0].get("paid") or charges[0].get("refunded"):
+    if getattr(intent, "status", None) != "succeeded":
+        return False
+    latest = getattr(intent, "latest_charge", None)
+    if not latest:
+        return False
+    charge = stripe.Charge.retrieve(latest if isinstance(latest, str) else latest.id)
+    if not charge.paid or charge.refunded:
         return False
     stripe.Refund.create(payment_intent=purchase.stripe_payment_intent)
     return True

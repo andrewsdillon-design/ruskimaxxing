@@ -257,3 +257,34 @@ def test_setup_stripe_creates_one_price_per_program_year(tmp_path, monkeypatch):
     made_after_first_run = dict(prices_by_lookup_key)
     mod.setup(fake, "https://api.x.com")  # second run: everything already exists, nothing new created
     assert prices_by_lookup_key == made_after_first_run
+
+
+# ----- the real refund helper against a fake Stripe (current API shape: latest_charge, non-dict objects) ---------
+class _Obj:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _fake_stripe(monkeypatch, intent_status="succeeded", paid=True, refunded=False, latest="ch_1"):
+    import stripe
+    calls = []
+    monkeypatch.setattr(stripe.PaymentIntent, "retrieve",
+                        staticmethod(lambda pi: _Obj(status=intent_status, latest_charge=latest)))
+    monkeypatch.setattr(stripe.Charge, "retrieve", staticmethod(lambda cid: _Obj(id=cid, paid=paid, refunded=refunded)))
+    monkeypatch.setattr(stripe.Refund, "create", staticmethod(lambda **kw: calls.append(kw)))
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_x")
+    return calls
+
+
+def test_refund_purchase_uses_latest_charge(monkeypatch):
+    calls = _fake_stripe(monkeypatch)
+    assert m.stripe_refund_purchase(_Obj(stripe_payment_intent="pi_1")) is True
+    assert calls == [{"payment_intent": "pi_1"}]
+
+
+def test_refund_purchase_skips_unpaid_refunded_or_missing(monkeypatch):
+    for kw in ({"intent_status": "processing"}, {"refunded": True}, {"paid": False}, {"latest": None}):
+        calls = _fake_stripe(monkeypatch, **kw)
+        assert m.stripe_refund_purchase(_Obj(stripe_payment_intent="pi_1")) is False
+        assert calls == []
+    assert m.stripe_refund_purchase(_Obj(stripe_payment_intent=None)) is False

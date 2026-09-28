@@ -28,22 +28,29 @@ run daily by cron), cancel online at any time, and a full refund of any charge w
 
 import hashlib
 import html
+import io
 import json
+import logging
 import os
 import secrets
 import smtplib
 import time
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request, Response
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
+from sqlalchemy import (Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
                         delete, func, inspect, select, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from .streaks import compute_streak
+
+logger = logging.getLogger(__name__)
 
 EDITIONS = ("standard", "supertotal")
 KINDS = ("lift", "bodyweight", "bodyfat", "setting")
@@ -56,12 +63,39 @@ ACTIVE_STATUSES = ("active", "trialing", "past_due")
 COOKIE = "rmx_session"
 REFUND_DAYS = 30                        # full refund of any charge (first year or renewal) within 30 days
 REMINDER_WINDOW = (30, 45)              # renewal reminder goes out 30-45 days before each yearly renewal
-TERMS_UPDATED = "September 26, 2026"
+TERMS_UPDATED = "September 28, 2026"
 MAX_CHANGES = 5000
 LINK_MINUTES = 15
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I
 APP_SCHEMES = {"standard": "ruskimaxxing", "supertotal": "ruskimaxxingsupertotal"}  # phone apps' return links
 ph = PasswordHasher()
+
+# ----- program years (one-time purchases, website-only) --------------------------------
+CONSENT_VERSION = "2026-09-28"        # bumped whenever the coaching-consent language changes
+PROGRAM_YEAR_LOOKUP_PREFIX = "ruskimaxxing_program_year"   # + N -> Stripe Price lookup_key
+STREAK_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+STREAK_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+STREAK_EXIF_TOLERANCE = timedelta(hours=2)
+STREAK_PHASH_MIN_DISTANCE = 10        # Hamming distance: below this, a photo is treated as a duplicate
+CALL_PRICE_PLAIN = "$99/hour"         # Phase 3 - not purchasable yet, shown as context for the discount
+
+
+def program_year_prices() -> dict[int, int]:
+    """Year -> price in cents, from PROGRAM_YEAR_PRICES (e.g. "2:19900,3:29900"). Years missing from the map
+    aren't purchasable yet ("coming later")."""
+    raw = os.environ.get("PROGRAM_YEAR_PRICES", "2:19900,3:29900")
+    out: dict[int, int] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        year, cents = part.split(":")
+        out[int(year)] = int(cents)
+    return out
+
+
+def format_price(cents: int) -> str:
+    return f"${cents / 100:,.0f}" if cents % 100 == 0 else f"${cents / 100:,.2f}"
 
 
 def utcnow() -> datetime:
@@ -156,6 +190,44 @@ class AuditLog(Base):
     target_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ProgramPurchase(Base):
+    """A one-time purchase of a program year. Uniqueness of (user, year) while not refunded, and idempotency
+    on stripe_session_id, are enforced in code (see owned_years / the webhook handler) rather than as DB
+    constraints, since a refunded row must be able to coexist with a later repurchase of the same year."""
+    __tablename__ = "program_purchases"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(10), default="usd")
+    stripe_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    stripe_payment_intent: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    purchased_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ConsentEvent(Base):
+    """Every grant/withdrawal of coaching consent - the only way the operator gets individual data access."""
+    __tablename__ = "consent_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    action: Mapped[str] = mapped_column(String(10))       # "grant" | "withdraw"
+    version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source: Mapped[str] = mapped_column(String(10))       # "purchase" | "account"
+
+
+class StreakCheck(Base):
+    """One accepted training-day photo check. The photo itself is never stored - only the day, when we got
+    it, and a perceptual hash used to reject a duplicate photo of an earlier session."""
+    __tablename__ = "streak_checks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    phash: Mapped[str] = mapped_column(String(16))
 
 
 def make_engine(url: str | None = None):
@@ -284,6 +356,198 @@ def period_end(sub) -> datetime | None:
     return datetime.fromtimestamp(end, timezone.utc).replace(tzinfo=None) if end else None
 
 
+# ----- program years (one-time purchases) --------------------------------------------
+_PROGRAM_PRICE_ID_CACHE: dict[int, str] = {}
+
+
+def owned_years(s: Session, user: "User") -> list[int]:
+    """Program years this user owns, always including Year 1 (free for everyone)."""
+    years = {1}
+    rows = s.scalars(select(ProgramPurchase.year).where(ProgramPurchase.user_id == user.id,
+                                                        ProgramPurchase.refunded_at.is_(None))).all()
+    years.update(rows)
+    return sorted(years)
+
+
+def next_purchasable_year(owned: list[int]) -> int | None:
+    """The next year the user could buy (must own every year before it), or None if it's not on sale yet."""
+    candidate = max(owned) + 1
+    return candidate if candidate in program_year_prices() else None
+
+
+def latest_refundable_purchase(s: Session, user: "User") -> "ProgramPurchase | None":
+    """Only the most recent owned (paid) year can be refunded, and only within REFUND_DAYS, to keep the
+    year-ownership chain valid."""
+    owned = owned_years(s, user)
+    if max(owned) <= 1:
+        return None
+    purchase = s.scalar(select(ProgramPurchase).where(ProgramPurchase.user_id == user.id,
+                                                      ProgramPurchase.year == max(owned),
+                                                      ProgramPurchase.refunded_at.is_(None)))
+    if not purchase or purchase.purchased_at < utcnow() - timedelta(days=REFUND_DAYS):
+        return None
+    return purchase
+
+
+# ----- streaks (see streaks.py for the pure day-counting logic) ------------------------
+def get_program_start(s: Session, user: "User") -> date | None:
+    """The user's program start date, from their synced `setting:start` record (either edition, newest wins)."""
+    rows = s.scalars(select(Record).where(Record.user_id == user.id, Record.uid == "setting:start",
+                                          Record.kind == "setting", Record.deleted.is_(False))).all()
+    best = None
+    for r in rows:
+        if not best or r.updated > best.updated:
+            best = r
+    if not best or not best.data:
+        return None
+    try:
+        value = json.loads(best.data).get("value")
+        return datetime.fromisoformat(str(value).replace("Z", "")).date() if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def streak_summary(s: Session, user: "User") -> dict | None:
+    start = get_program_start(s, user)
+    if start is None:
+        return None
+    checks = list(s.scalars(select(StreakCheck.day).where(StreakCheck.user_id == user.id)).all())
+    r = compute_streak(checks, start, utcnow().date())
+    return {"streak_days": r.streak_days, "discount_pct": r.discount_pct,
+           "today_is_training_day": r.today_is_training_day, "checked_today": r.checked_today,
+           "next_discount_at_days": r.next_discount_at_days}
+
+
+def compute_dhash(image_bytes: bytes) -> str:
+    """64-bit difference hash (dHash), as a 16-char hex string. Never touches disk."""
+    from PIL import Image
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img.load()
+        small = img.convert("L").resize((9, 8), Image.LANCZOS)
+        pixels = list(small.getdata())
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (1 if pixels[row * 9 + col] > pixels[row * 9 + col + 1] else 0)
+    return f"{bits:016x}"
+
+
+def hamming_distance(a_hex: str, b_hex: str) -> int:
+    return bin(int(a_hex, 16) ^ int(b_hex, 16)).count("1")
+
+
+def exif_datetime_original(image_bytes: bytes) -> datetime | None:
+    """The photo's EXIF "date taken", if any. Only JPEGs typically carry this."""
+    from PIL import ExifTags, Image
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            exif = img.getexif()
+            if not exif:
+                return None
+            raw = exif.get(0x9003)  # DateTimeOriginal, sometimes present at the top level
+            if not raw:
+                try:
+                    exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+                    raw = exif_ifd.get(0x9003)
+                except Exception:
+                    raw = None
+            if not raw:
+                return None
+            return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+def program_purchase_error(s: Session, user: "User", year: int) -> str | None:
+    """None if `year` is purchasable by this user right now, else a message to show them."""
+    prices = program_year_prices()
+    if year not in prices:
+        return "That program year isn't available yet."
+    owned = owned_years(s, user)
+    if year in owned:
+        return "You already own that program year."
+    if year - 1 not in owned:
+        return "Buy the previous program year first."
+    return None
+
+
+def _program_year_price_id(stripe, year: int) -> str:
+    if year not in _PROGRAM_PRICE_ID_CACHE:
+        lookup_key = f"{PROGRAM_YEAR_LOOKUP_PREFIX}{year}"
+        prices = stripe.Price.list(lookup_keys=[lookup_key], active=True, limit=1).data
+        if not prices:
+            raise HTTPException(500, "That program year isn't set up for purchase yet.")
+        _PROGRAM_PRICE_ID_CACHE[year] = prices[0].id
+    return _PROGRAM_PRICE_ID_CACHE[year]
+
+
+def stripe_checkout_program_year(user, base: str, year: int, consent_version: str) -> str:
+    """Create a one-time-payment Stripe Checkout session for a program year."""
+    import stripe
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+    price_id = _program_year_price_id(stripe, year)
+    params = {"mode": "payment", "line_items": [{"price": price_id, "quantity": 1}],
+              "client_reference_id": str(user.id),
+              "metadata": {"kind": "program_year", "year": str(year), "user_id": str(user.id),
+                          "consent_version": consent_version},
+              "success_url": f"{base}/account/program?paid={year}", "cancel_url": f"{base}/account/program"}
+    if user.stripe_customer:
+        params["customer"] = user.stripe_customer
+    else:
+        params["customer_email"] = user.email
+    return stripe.checkout.Session.create(**params).url
+
+
+def stripe_refund_purchase(purchase: "ProgramPurchase") -> bool:
+    """Refund a specific program-year payment in full. Returns False if there's nothing to refund."""
+    import stripe
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+    if not purchase.stripe_payment_intent:
+        return False
+    intent = stripe.PaymentIntent.retrieve(purchase.stripe_payment_intent)
+    charges = (intent.get("charges") or {}).get("data") or []
+    if not charges or not charges[0].get("paid") or charges[0].get("refunded"):
+        return False
+    stripe.Refund.create(payment_intent=purchase.stripe_payment_intent)
+    return True
+
+
+def handle_program_year_checkout(s: Session, obj: dict, request: Request | None = None) -> None:
+    """checkout.session.completed for a one-time program-year purchase. Idempotent on the Stripe session id."""
+    session_id = obj.get("id")
+    if session_id and s.scalar(select(ProgramPurchase).where(ProgramPurchase.stripe_session_id == session_id)):
+        return
+    metadata = obj.get("metadata") or {}
+    try:
+        year = int(metadata.get("year"))
+    except (TypeError, ValueError):
+        return
+    user_id = metadata.get("user_id") or obj.get("client_reference_id")
+    user = s.get(User, int(user_id)) if user_id else None
+    if not user:
+        return
+    prices = program_year_prices()
+    amount_cents = obj.get("amount_total") or prices.get(year, 0)
+    if obj.get("customer"):
+        user.stripe_customer = obj["customer"]
+    s.add(ProgramPurchase(user_id=user.id, year=year, amount_cents=amount_cents,
+                          currency=(obj.get("currency") or "usd"), stripe_session_id=session_id,
+                          stripe_payment_intent=obj.get("payment_intent"), purchased_at=utcnow()))
+    consent_version = metadata.get("consent_version") or CONSENT_VERSION
+    if not user.coaching_consent_at:
+        user.coaching_consent_at = utcnow()
+        user.coaching_consent_version = consent_version
+    s.add(ConsentEvent(user_id=user.id, at=utcnow(), action="grant", version=consent_version, source="purchase"))
+    if mail_on():
+        try:
+            send_mail(user.email, f"Your RuskiMaxxing Program Year {year} purchase",
+                      PROGRAM_PURCHASE_EMAIL.format(year=year, price=format_price(amount_cents),
+                                                    base=public_url(request), contact=contact_email(),
+                                                    days=REFUND_DAYS))
+        except Exception:
+            logger.exception("Failed to send program-year purchase receipt email")
+
+
 # ----- API models -------------------------------------------------------------------
 class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=320)
@@ -343,7 +607,8 @@ def create_user(s: Session, email: str, password: str) -> "User":
 
 
 def erase_user(s: Session, user: "User") -> None:
-    for model in (Record, LoginSession, ResetToken, AppLink, AdminSession):
+    for model in (Record, LoginSession, ResetToken, AppLink, AdminSession, ProgramPurchase, ConsentEvent,
+                 StreakCheck):
         s.execute(delete(model).where(model.user_id == user.id))
     s.delete(user)
     s.commit()
@@ -457,7 +722,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def me(user: User = Depends(current_user), s: Session = Depends(db)):
         counts = {e: s.scalar(select(func.count()).select_from(Record).where(
             Record.user_id == user.id, Record.edition == e, Record.deleted.is_(False))) for e in EDITIONS}
-        return {"email": user.email, "records": counts, "plan": plan_info(user)}
+        out = {"email": user.email, "records": counts, "plan": plan_info(user),
+              "program_years": owned_years(s, user)}
+        summary = streak_summary(s, user)
+        if summary is not None:
+            out["streak"] = summary
+        return out
 
     @app.post("/api/sync")
     def sync(body: SyncRequest, user: User = Depends(current_user), s: Session = Depends(db)):
@@ -490,6 +760,51 @@ def create_app(database_url: str | None = None) -> FastAPI:
         out = [{"uid": r.uid, "kind": r.kind, "updated": r.updated, "deleted": r.deleted,
                 "data": json.loads(r.data) if r.data else None} for r in rows]
         return {"changes": out, "seq": max([body.since] + [r.seq for r in rows]), "plan": plan_info(user)}
+
+    @app.post("/api/streak")
+    async def api_streak(request: Request, photo: UploadFile = File(...), local_date: str = Form(...),
+                         utc_offset_minutes: int = Form(...), user: User = Depends(current_user),
+                         s: Session = Depends(db)):
+        start = get_program_start(s, user)
+        if start is None:
+            raise HTTPException(400, "Set your program start date in the app first.")
+        try:
+            client_date = date.fromisoformat(local_date)
+        except ValueError:
+            raise HTTPException(400, "Bad date") from None
+        server_local_date = (utcnow() + timedelta(minutes=utc_offset_minutes)).date()
+        if client_date != server_local_date:
+            raise HTTPException(400, "That doesn't match the current time - check your device's clock.")
+        from .streaks import is_training_day
+        if not is_training_day(client_date, start):
+            raise HTTPException(400, "Today isn't a scheduled training day.")
+        if s.scalar(select(StreakCheck).where(StreakCheck.user_id == user.id, StreakCheck.day == client_date)):
+            raise HTTPException(400, "You already checked in today.")
+        if photo.content_type not in STREAK_ALLOWED_CONTENT_TYPES:
+            raise HTTPException(400, "Upload a JPEG or PNG photo.")
+        body = await photo.read()
+        if len(body) > STREAK_MAX_UPLOAD_BYTES:
+            raise HTTPException(400, "That photo is too large (8 MB max).")
+        try:
+            phash = compute_dhash(body)
+        except Exception:
+            raise HTTPException(400, "That doesn't look like a photo.") from None
+        client_local_now = utcnow() + timedelta(minutes=utc_offset_minutes)
+        exif_at = exif_datetime_original(body)
+        if exif_at is not None and abs(exif_at - client_local_now) > STREAK_EXIF_TOLERANCE:
+            raise HTTPException(400, "That photo wasn't just taken.")
+        previous = s.scalars(select(StreakCheck.phash).where(StreakCheck.user_id == user.id)).all()
+        if any(hamming_distance(phash, prev) < STREAK_PHASH_MIN_DISTANCE for prev in previous):
+            raise HTTPException(400, "That looks like a photo you've already used - take a fresh one.")
+        s.add(StreakCheck(user_id=user.id, day=client_date, received_at=utcnow(), phash=phash))
+        s.commit()
+        del body  # never persisted - kept in memory only for the checks above
+        checks = list(s.scalars(select(StreakCheck.day).where(StreakCheck.user_id == user.id)).all())
+        result = compute_streak(checks, start, utcnow().date())
+        return {"ok": True, "streak": {"streak_days": result.streak_days, "discount_pct": result.discount_pct,
+                                       "today_is_training_day": result.today_is_training_day,
+                                       "checked_today": result.checked_today,
+                                       "next_discount_at_days": result.next_discount_at_days}}
 
     @app.delete("/api/account")
     def delete_account(body: Password, user: User = Depends(current_user), s: Session = Depends(db)):
@@ -544,6 +859,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                              f"a charge? Email {html.escape(contact_email())}.</p>"}
         return page("Your RuskiMaxxing account", f"""
             <p>Signed in as {html.escape(user.email)}</p>{thanks}{notes.get(msg, "")}{status}{actions}
+            <p><a href="/account/program">Program years &amp; streak</a></p>
             <form method="post" action="/account/logout"><p><button>Log out</button></p></form>
             <p><a href="/account/delete">Delete account</a></p>""")
 
@@ -718,6 +1034,178 @@ def create_app(database_url: str | None = None) -> FastAPI:
             return RedirectResponse("/account", status_code=303)
         return RedirectResponse(stripe_portal(user, public_url(request)), status_code=303)
 
+    # ----- web account page: program years, coaching consent, streak ------------------
+    def consent_checkboxes(warn: bool = False) -> str:
+        warning = ('<p style="color:#8B1A1A"><b>Please tick both boxes to continue.</b></p>' if warn else "")
+        return f"""{warning}
+          <p><label><input type="checkbox" name="consent" value="yes" required style="width:auto">
+          I agree that the operator can view and use my synced training data (workouts, bodyweight, body fat
+          and settings) to personalize my program and coach me. I can withdraw this any time on this page.</label></p>
+          <p><label><input type="checkbox" name="terms" value="yes" required style="width:auto">
+          I agree to the <a href="/terms">Terms of Service</a>.</label></p>"""
+
+    def consent_only_checkbox() -> str:
+        return """<p><label><input type="checkbox" name="consent" value="yes" required style="width:auto">
+          I agree that the operator can view and use my synced training data (workouts, bodyweight, body fat
+          and settings) to personalize my program and coach me. I can withdraw this any time on this page.</label></p>"""
+
+    def program_page_html(request: Request, user: User, s: Session, error: str = "", msg: str = "") -> str:
+        owned = owned_years(s, user)
+        prices = program_year_prices()
+        base = public_url(request)
+        next_year = next_purchasable_year(owned)
+
+        purchases = s.scalars(select(ProgramPurchase).where(ProgramPurchase.user_id == user.id)
+                              .order_by(ProgramPurchase.purchased_at.desc())).all()
+        owned_rows = "".join(f"<li>Year {y}{' (free)' if y == 1 else ''}</li>" for y in owned)
+
+        if user.coaching_consent_at:
+            consent_html = (f"<p><b>Coaching consent: granted</b> ({user.coaching_consent_at.date()}). The "
+                            f"operator can view your synced training data to personalize your program and coach "
+                            f"you.</p><form method='post' action='/account/consent/withdraw' "
+                            f"onsubmit=\"return confirm('Withdraw consent? The operator will no longer be able to "
+                            f"view your training data. Your program years keep working.')\">"
+                            f"<button>Withdraw consent</button></form>")
+        else:
+            regrant = ('<form method="post" action="/account/consent/grant">' + consent_only_checkbox() +
+                      '<p><button>Re-grant consent</button></p></form>') if max(owned) > 1 else ""
+            consent_html = (f"<p><b>Coaching consent: not granted.</b> The operator can't see your training "
+                            f"data.</p>{regrant}")
+
+        if error == "consent":
+            error_banner = "<p style='color:#8B1A1A'><b>Please tick both boxes to continue.</b></p>"
+        elif error:
+            error_banner = f"<p style='color:#8B1A1A'><b>{html.escape(error)}</b></p>"
+        else:
+            error_banner = ""
+
+        if next_year is None:
+            buy_html = "<p>No further program years are for sale yet - check back later.</p>"
+        else:
+            price = format_price(prices[next_year])
+            buy_html = f"""<div style="border:2px solid #4A1942;padding:10px 14px;background:#F6EEDC">
+            <p><b>Program Year {next_year}: {price}, one-time purchase.</b></p>
+            <form method="post" action="/account/program/{next_year}/checkout">
+            {consent_checkboxes()}
+            <p><button>Buy Year {next_year} - {price}</button></p></form></div>"""
+
+        refundable = latest_refundable_purchase(s, user)
+        refund_html = ""
+        if refundable:
+            refund_html = (f"<form method='post' action='/account/program/{refundable.year}/refund' "
+                           f"onsubmit=\"return confirm('Refund Year {refundable.year} in full? This removes that "
+                           f"program year.')\"><p><button>Refund Year {refundable.year} "
+                           f"({format_price(refundable.amount_cents)})</button><br>"
+                           f"<small>Within {REFUND_DAYS} days of purchase.</small></p></form>")
+
+        streak_html = ""
+        summary = streak_summary(s, user)
+        if summary is not None:
+            streak_html = f"""<div class="card"><h3>Streak</h3>
+            <p>Current streak: <b>{summary['streak_days']} days</b>{" (checked in today)" if summary['checked_today'] else ""}.
+            Coaching-call discount: <b>{summary['discount_pct']}%</b> off {CALL_PRICE_PLAIN}
+            {f" (next discount at {summary['next_discount_at_days']} days)" if summary['next_discount_at_days'] else " (max discount reached)"}.</p>
+            <p class="small">Coaching calls aren't bookable here yet - this discount will apply when they are.</p></div>"""
+        elif max(owned) >= 1:
+            streak_html = ('<div class="card"><h3>Streak</h3><p class="small">Set your program start date in the '
+                          'app to start your streak.</p></div>')
+
+        note = {"refunded": "<p><b>Refund issued.</b> That program year has been removed.</p>",
+               "norefund": "<p><b>Nothing to refund.</b> Only the most recent purchase, within "
+                          f"{REFUND_DAYS} days, can be refunded.</p>"}.get(msg, "")
+        thanks = "<p><b>Thanks - your purchase went through.</b> It can take a minute to show here.</p>" if \
+            request.query_params.get("paid") else ""
+
+        return page("Program years", f"""
+            {thanks}{note}{error_banner}
+            <div class="card"><h3>Program years you own</h3><ul>{owned_rows}</ul>{refund_html}</div>
+            {streak_html}
+            <div class="card"><h3>Coaching consent</h3>{consent_html}</div>
+            <div class="card"><h3>Buy the next program year</h3>{buy_html}</div>
+            <p><a href="/account">Back to account</a></p>""")
+
+    @app.get("/account/program", response_class=HTMLResponse)
+    def account_program(request: Request, msg: str = "", rmx_session: str | None = Cookie(default=None),
+                        s: Session = Depends(db)):
+        user = web_user(s, rmx_session)
+        if not user:
+            return page("Log in", login_form("/account/program"))
+        return program_page_html(request, user, s, msg=msg)
+
+    @app.post("/account/program/{year}/checkout", response_class=HTMLResponse)
+    def account_program_checkout(request: Request, year: int, consent: str = Form(default=""),
+                                 terms: str = Form(default=""), rmx_session: str | None = Cookie(default=None),
+                                 s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user:
+            return RedirectResponse("/account/program", status_code=303)
+        if not billing_on():
+            return HTMLResponse(page("Not available", "<p>Program-year purchases aren't set up on this server."
+                                                       "</p>"), status_code=400)
+        err = program_purchase_error(s, user, year)
+        if err:
+            return HTMLResponse(program_page_html(request, user, s, error=err), status_code=400)
+        if consent != "yes" or terms != "yes":
+            return HTMLResponse(program_page_html(request, user, s, error="consent"), status_code=400)
+        return RedirectResponse(stripe_checkout_program_year(user, public_url(request), year, CONSENT_VERSION),
+                                status_code=303)
+
+    @app.post("/account/program/{year}/refund")
+    def account_program_refund(request: Request, year: int, rmx_session: str | None = Cookie(default=None),
+                               s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user:
+            return RedirectResponse("/account/program", status_code=303)
+        purchase = latest_refundable_purchase(s, user)
+        if not purchase or purchase.year != year or not billing_on():
+            return RedirectResponse("/account/program?msg=norefund", status_code=303)
+        if not stripe_refund_purchase(purchase):
+            return RedirectResponse("/account/program?msg=norefund", status_code=303)
+        purchase.refunded_at = utcnow()
+        s.commit()
+        if mail_on():
+            try:
+                send_mail(user.email, "Your RuskiMaxxing program-year refund",
+                          f"We've refunded your Year {purchase.year} purchase in full. It goes back to your "
+                          f"original payment method, usually within 5-10 business days.\n\nQuestions: "
+                          f"{contact_email()}")
+            except Exception:
+                logger.exception("Failed to send program-year refund email")
+        return RedirectResponse("/account/program?msg=refunded", status_code=303)
+
+    @app.post("/account/consent/withdraw")
+    def account_consent_withdraw(request: Request, rmx_session: str | None = Cookie(default=None),
+                                 s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user:
+            return RedirectResponse("/account/program", status_code=303)
+        user.coaching_consent_at = None
+        s.add(ConsentEvent(user_id=user.id, at=utcnow(), action="withdraw",
+                           version=user.coaching_consent_version, source="account"))
+        s.commit()
+        return RedirectResponse("/account/program", status_code=303)
+
+    @app.post("/account/consent/grant", response_class=HTMLResponse)
+    def account_consent_grant(request: Request, consent: str = Form(default=""), terms: str = Form(default=""),
+                              rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
+        same_origin(request)
+        user = web_user(s, rmx_session)
+        if not user:
+            return RedirectResponse("/account/program", status_code=303)
+        if max(owned_years(s, user)) <= 1:
+            return HTMLResponse(program_page_html(request, user, s, error="Buy a program year first."),
+                                status_code=400)
+        if consent != "yes":
+            return HTMLResponse(program_page_html(request, user, s, error="consent"), status_code=400)
+        user.coaching_consent_at = utcnow()
+        user.coaching_consent_version = CONSENT_VERSION
+        s.add(ConsentEvent(user_id=user.id, at=utcnow(), action="grant", version=CONSENT_VERSION, source="account"))
+        s.commit()
+        return RedirectResponse("/account/program", status_code=303)
+
     @app.post("/stripe/webhook")
     async def stripe_webhook(request: Request, stripe_signature: str = Header(default=""),
                              s: Session = Depends(db)):
@@ -728,13 +1216,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(400, "Bad signature") from None
         kind, obj = event["type"], event["data"]["object"]
         if kind == "checkout.session.completed":
-            user = s.get(User, int(obj.get("client_reference_id") or 0))
-            if user and obj.get("customer"):
-                user.stripe_customer = obj["customer"]
-                if mail_on():
-                    send_mail(user.email, "Your RuskiMaxxing Cloud Backup plan",
-                              PURCHASE_EMAIL.format(base=public_url(request), contact=contact_email(),
-                                                    days=REFUND_DAYS))
+            metadata = obj.get("metadata") or {}
+            if obj.get("mode") == "payment" and metadata.get("kind") == "program_year":
+                handle_program_year_checkout(s, obj, request)
+            else:
+                user = s.get(User, int(obj.get("client_reference_id") or 0))
+                if user and obj.get("customer"):
+                    user.stripe_customer = obj["customer"]
+                    if mail_on():
+                        send_mail(user.email, "Your RuskiMaxxing Cloud Backup plan",
+                                  PURCHASE_EMAIL.format(base=public_url(request), contact=contact_email(),
+                                                        days=REFUND_DAYS))
         elif kind in ("customer.subscription.created", "customer.subscription.updated",
                       "customer.subscription.deleted"):
             user_id = ((obj.get("metadata") or {}).get("user_id"))
@@ -1056,6 +1548,19 @@ future renewals; backups stay on until the end of the year you've paid for.
 
 Refunds: you can get a full refund of any payment within {days} days of that payment, no questions
 asked. Use "Request a full refund" at {base}/account or email {contact}.
+
+Terms of Service: {base}/terms
+"""
+
+PROGRAM_PURCHASE_EMAIL = """Thanks for buying RuskiMaxxing Program Year {year} ({price}, one-time).
+
+This unlocks the Year {year} program in the app, built from your own training data, plus light
+coaching from the operator - which requires the coaching-consent you agreed to at checkout. You
+can withdraw that consent any time at {base}/account/program; your program years keep working
+either way.
+
+Refunds: you can get a full refund within {days} days of this purchase. Use "Refund" at
+{base}/account/program or email {contact}.
 
 Terms of Service: {base}/terms
 """

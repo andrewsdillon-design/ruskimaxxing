@@ -114,6 +114,33 @@ sudo journalctl -u ruskimaxxing-cloud -n 100    # logs
 sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.com you@your-domain.com  # update
 ```
 
+## Admin
+
+An admin backend lives at `https://api.your-domain.com/admin` (separate cookie/login from lifters'
+accounts, its own 12-hour session, and a required authenticator-app code on every login).
+
+**Bootstrap the first admin** from the app's own environment, run from `server/` inside the app checkout
+(module lookup needs that working directory - it matches `WorkingDirectory` in
+`deploy/ruskimaxxing-cloud.service`):
+```bash
+sudo -u ruskimaxxing bash -c 'cd /opt/ruskimaxxing-cloud/app/server && set -a; \
+  . /etc/ruskimaxxing-cloud.env; \
+  /opt/ruskimaxxing-cloud/venv/bin/python -m ruskimaxxing_cloud.admin_cli create-admin you@x.com'
+```
+It asks for a password (12+ characters) if the account doesn't exist yet, or just promotes it if it does,
+then prints a QR code and a manual-entry secret for your authenticator app (Google Authenticator, 1Password,
+Authy...). Also: `admin_cli.py reset-totp you@x.com` (lost your phone) and `admin_cli.py demote you@x.com`
+(remove admin access and sign that admin out of `/admin` everywhere).
+
+Two data-access rules the admin backend enforces:
+1. **Individual training data** (a user's lift/bodyweight/bodyfat log) is only shown to admins for users
+   who've given explicit coaching consent (`users.coaching_consent_at`). No signup flow sets this yet in
+   Phase 1 - it's wired for a future opt-in. Without consent, the user page shows record counts, storage
+   and last-sync only, with a clear notice. Every view of a consented user's training data is written to
+   the audit log (`/admin/audit`).
+2. **Research** (`/admin/research`) only shows aggregate, de-identified statistics - never per-user rows,
+   emails or ids - and hides ("<10") any number built from fewer than 10 distinct users.
+
 ## Before you launch: privacy and app stores
 - Bodyweight and body fat are **health data**. Review and edit the template privacy page at
   `https://api.your-domain.com/privacy` (the text is in `ruskimaxxing_cloud/main.py`), and set

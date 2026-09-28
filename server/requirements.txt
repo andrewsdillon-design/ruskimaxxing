@@ -4,8 +4,9 @@ sqlalchemy>=2.0
 psycopg[binary]>=3.2      # PostgreSQL driver (production)
 argon2-cffi>=23.1         # password hashing
 python-multipart>=0.0.9   # web forms (account page, password reset)
-stripe>=12                # $20/year cloud-backup plan
+stripe>=12                # $20/year cloud-backup plan, one-time program-year purchases
 segno>=1.6                 # terminal QR codes for admin two-factor setup (admin_cli.py)
+Pillow>=10                 # streak-photo perceptual hash + EXIF check (processed in memory, never stored)
 # tests
 httpx>=0.27
 pytest>=8

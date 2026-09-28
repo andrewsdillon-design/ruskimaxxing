@@ -408,6 +408,9 @@ def get_program_start(s: Session, user: "User") -> date | None:
 
 
 def streak_summary(s: Session, user: "User") -> dict | None:
+    """None unless the user owns a paid program year (Year 2+) and has a synced program start date."""
+    if max(owned_years(s, user)) <= 1:
+        return None
     start = get_program_start(s, user)
     if start is None:
         return None
@@ -424,7 +427,7 @@ def compute_dhash(image_bytes: bytes) -> str:
     with Image.open(io.BytesIO(image_bytes)) as img:
         img.load()
         small = img.convert("L").resize((9, 8), Image.LANCZOS)
-        pixels = list(small.getdata())
+        pixels = small.tobytes()  # mode "L": one byte (0-255) per pixel
     bits = 0
     for row in range(8):
         for col in range(8):
@@ -765,6 +768,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     async def api_streak(request: Request, photo: UploadFile = File(...), local_date: str = Form(...),
                          utc_offset_minutes: int = Form(...), user: User = Depends(current_user),
                          s: Session = Depends(db)):
+        if max(owned_years(s, user)) <= 1:
+            raise HTTPException(400, "Streaks are part of a paid program year.")
         start = get_program_start(s, user)
         if start is None:
             raise HTTPException(400, "Set your program start date in the app first.")
@@ -1106,7 +1111,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             Coaching-call discount: <b>{summary['discount_pct']}%</b> off {CALL_PRICE_PLAIN}
             {f" (next discount at {summary['next_discount_at_days']} days)" if summary['next_discount_at_days'] else " (max discount reached)"}.</p>
             <p class="small">Coaching calls aren't bookable here yet - this discount will apply when they are.</p></div>"""
-        elif max(owned) >= 1:
+        elif max(owned) > 1:
             streak_html = ('<div class="card"><h3>Streak</h3><p class="small">Set your program start date in the '
                           'app to start your streak.</p></div>')
 

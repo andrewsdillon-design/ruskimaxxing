@@ -1,9 +1,11 @@
 """Pure logic for the training streak / call-discount calculation (see streaks.py)."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -127,3 +129,193 @@ def test_next_discount_at_days_caps_at_max():
     r = compute_streak(checks, start, today)
     assert r.discount_pct == 50
     assert r.next_discount_at_days is None
+
+
+# ----- /api/streak endpoint (image handling, validation, in-memory-only processing) --------
+
+import hashlib
+import hmac
+import io
+import json as _json
+import os
+import sys
+import time
+from pathlib import Path as _Path
+
+import pytest as _pytest
+
+_pytest.importorskip("fastapi")
+_pytest.importorskip("PIL")
+os.environ["RUSKIMAXXING_CLOUD_AUTOSTART"] = "0"
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+from fastapi.testclient import TestClient  # noqa: E402
+from PIL import Image  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+import ruskimaxxing_cloud.main as m  # noqa: E402
+
+FIXED_NOW = datetime(2026, 3, 2, 12, 0, 0)  # a Monday
+START_DATE = "2026-03-02"
+
+
+def random_jpeg_bytes(seed: int = 0, exif_dt: datetime | None = None) -> bytes:
+    import random
+    rng = random.Random(seed)
+    img = Image.new("RGB", (64, 64))
+    img.putdata([(rng.randrange(256), rng.randrange(256), rng.randrange(256)) for _ in range(64 * 64)])
+    buf = io.BytesIO()
+    if exif_dt is not None:
+        exif = Image.Exif()
+        exif[0x9003] = exif_dt.strftime("%Y:%m:%d %H:%M:%S")
+        img.save(buf, format="JPEG", exif=exif)
+    else:
+        img.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def app(tmp_path, monkeypatch):
+    for k in ("STRIPE_SECRET_KEY", "SMTP_HOST"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PUBLIC_URL", "https://testserver")
+    return m.create_app(f"sqlite:///{tmp_path}/cloud.db")
+
+
+@pytest.fixture
+def client(app):
+    return TestClient(app, base_url="https://testserver")
+
+
+class Clock:
+    def __init__(self, dt):
+        self.dt = dt
+
+    def __call__(self):
+        return self.dt
+
+
+def register_with_program_year(client, app, monkeypatch, start_date=START_DATE):
+    r = client.post("/api/register", json={"email": "lifter@example.com", "password": "squat-heavy"})
+    token = r.json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    with m.Session(app.state.engine) as s:
+        user_id = s.scalar(select(m.User.id).where(m.User.email == "lifter@example.com"))
+        s.add(m.ProgramPurchase(user_id=user_id, year=2, amount_cents=19900, currency="usd",
+                                purchased_at=m.utcnow()))
+        s.commit()
+    sync = {"edition": "standard", "since": 0, "changes": [
+        {"uid": "setting:start", "kind": "setting", "updated": "2026-01-01T00:00:00.000000Z", "deleted": False,
+         "data": {"key": "start", "value": start_date}}]}
+    r = client.post("/api/sync", headers=headers, json=sync)
+    assert r.status_code == 200
+    return headers, user_id
+
+
+def test_streak_rejects_without_a_paid_program_year(client, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    r = client.post("/api/register", json={"email": "free@example.com", "password": "squat-heavy"})
+    headers = {"Authorization": f"Bearer {r.json()['token']}"}
+    photo = random_jpeg_bytes()
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 400 and "program year" in r.json()["detail"].lower()
+
+
+def test_streak_accepts_a_fresh_photo_on_a_training_day(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, user_id = register_with_program_year(client, app, monkeypatch)
+    photo = random_jpeg_bytes(seed=1)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["streak"]["streak_days"] == 1
+    assert body["streak"]["checked_today"] is True
+    assert body["streak"]["today_is_training_day"] is True
+
+    with m.Session(app.state.engine) as s:
+        rows = s.scalars(select(m.StreakCheck).where(m.StreakCheck.user_id == user_id)).all()
+        assert len(rows) == 1
+        assert rows[0].day.isoformat() == "2026-03-02"
+        assert len(rows[0].phash) == 16  # only day/received_at/phash are kept - never the image bytes
+
+
+def test_streak_rejects_non_training_day(client, app, monkeypatch):
+    clock = Clock(datetime(2026, 3, 3, 12, 0, 0))  # Tuesday - not scheduled (Mon/Wed/Fri)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    photo = random_jpeg_bytes(seed=2)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-03", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 400 and "training day" in r.json()["detail"].lower()
+
+
+def test_streak_rejects_wrong_local_date(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    photo = random_jpeg_bytes(seed=3)
+    # claims a local date that doesn't match server-now shifted by the given offset
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-05", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 400
+
+
+def test_streak_rejects_second_check_same_day(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    data = {"local_date": "2026-03-02", "utc_offset_minutes": "0"}
+    r1 = client.post("/api/streak", headers=headers, data=data,
+                     files={"photo": ("a.jpg", random_jpeg_bytes(seed=4), "image/jpeg")})
+    assert r1.status_code == 200
+    r2 = client.post("/api/streak", headers=headers, data=data,
+                     files={"photo": ("b.jpg", random_jpeg_bytes(seed=5), "image/jpeg")})
+    assert r2.status_code == 400 and "already checked in" in r2.json()["detail"].lower()
+
+
+def test_streak_rejects_duplicate_photo_on_a_later_day(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    photo = random_jpeg_bytes(seed=6)
+    r1 = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                     files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r1.status_code == 200
+
+    clock.dt = datetime(2026, 3, 4, 12, 0, 0)  # next scheduled day: Wednesday
+    r2 = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-04", "utc_offset_minutes": "0"},
+                     files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r2.status_code == 400 and "already used" in r2.json()["detail"].lower()
+
+
+def test_streak_rejects_non_image_upload(client, app, monkeypatch):
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, _ = register_with_program_year(client, app, monkeypatch)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.txt", b"not an image", "text/plain")})
+    assert r.status_code == 400
+
+
+def test_streak_never_persists_the_photo_bytes(client, app, monkeypatch):
+    """No column exists to store the photo, and the handler only ever keeps day/received_at/phash."""
+    clock = Clock(FIXED_NOW)
+    monkeypatch.setattr(m, "utcnow", clock)
+    headers, user_id = register_with_program_year(client, app, monkeypatch)
+    photo = random_jpeg_bytes(seed=7)
+    r = client.post("/api/streak", headers=headers, data={"local_date": "2026-03-02", "utc_offset_minutes": "0"},
+                    files={"photo": ("a.jpg", photo, "image/jpeg")})
+    assert r.status_code == 200
+    with m.Session(app.state.engine) as s:
+        row = s.scalar(select(m.StreakCheck).where(m.StreakCheck.user_id == user_id))
+        stored_columns = {c.name for c in m.StreakCheck.__table__.columns}
+        assert stored_columns == {"id", "user_id", "day", "received_at", "phash"}
+        for col in stored_columns:
+            value = getattr(row, col)
+            assert value is None or photo not in str(value).encode("utf-8", errors="ignore")
+
+

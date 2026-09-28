@@ -303,3 +303,52 @@ def test_audit_log_never_contains_password_or_totp_code(client, app):
         assert "wrong-password-here" not in blob
         for row in rows:
             assert row.detail is None or not row.detail.isdigit() or len(row.detail) != 6
+
+
+# ----- review fixes: comp action validation, bad dates, newest-first sets, unknown-email login ---------
+def _csrf(client):
+    import re
+    return re.search(r'name="csrf" value="([^"]+)"', client.get("/admin").text).group(1)
+
+
+def test_comp_rejects_unknown_action_and_bad_date(client, app):
+    logged_in_client(client, app)
+    uid = make_user(app, "compcheck@example.com")
+    token = _csrf(client)
+    with m.Session(app.state.engine) as s:
+        s.get(m.User, uid).comp_until = m.utcnow() + timedelta(days=10)
+        s.commit()
+    r = client.post(f"/admin/users/{uid}/comp", data={"csrf": token, "action": "grnt"}, follow_redirects=False)
+    assert r.status_code == 400
+    r = client.post(f"/admin/users/{uid}/comp", data={"csrf": token, "action": "grant", "until": "not-a-date"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "bad_date" in r.headers["location"]
+    with m.Session(app.state.engine) as s:
+        assert s.get(m.User, uid).comp_until is not None   # neither request revoked it
+
+
+def test_recent_sets_are_newest_training_first(client, app):
+    logged_in_client(client, app)
+    uid = make_user(app, "order@example.com", coaching_consent_at=m.utcnow(), coaching_consent_version="t")
+    for wk, date in ((1, "2026-01-05"), (3, "2026-01-19"), (2, "2026-01-12")):
+        add_record(app, uid, "standard", f"set:{wk}:1:Squat:1", "lift",
+                   {"date": date, "exercise": "Squat", "weight": 100 + wk, "reps": 5, "week": wk, "day": 1,
+                    "set_no": 1, "done": True}, updated="2026-02-01T00:00:00.000000Z")
+    page = client.get(f"/admin/users/{uid}").text
+    assert page.index("2026-01-19") < page.index("2026-01-12") < page.index("2026-01-05")
+
+
+def test_unknown_email_still_runs_password_hash(monkeypatch, app):
+    calls, real = [], m.ph
+
+    class Spy:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def verify(self, h, p):
+            calls.append(h)
+            return real.verify(h, p)
+    monkeypatch.setattr(m, "ph", Spy())
+    with m.Session(app.state.engine) as s:
+        assert m.check_password(s, "nobody@example.com", "whatever-123") is None
+    assert calls == [m.DUMMY_HASH]

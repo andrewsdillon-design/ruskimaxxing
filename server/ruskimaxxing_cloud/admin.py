@@ -27,7 +27,7 @@ from pathlib import Path
 
 from fastapi import Cookie, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from . import totp
@@ -222,7 +222,14 @@ def register(app, SessionLocal, engine) -> None:
         if not user or not user.is_admin or not user.totp_secret or step is None:
             audit(s, None, "login_failed", request)
             return HTMLResponse(login_page("Wrong email, password, or code."), status_code=401)
-        user.totp_last_step = step
+        # claim this code's time step atomically, so two simultaneous logins can't reuse one code
+        claimed = s.execute(update(User).where(User.id == user.id,
+                                               or_(User.totp_last_step.is_(None), User.totp_last_step < step))
+                            .values(totp_last_step=step)).rowcount
+        if not claimed:
+            s.rollback()
+            audit(s, None, "login_failed", request)
+            return HTMLResponse(login_page("Wrong email, password, or code."), status_code=401)
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         s.add(AdminSession(token_hash=digest(token), user_id=user.id, csrf_token=csrf,
                            expires=utcnow() + timedelta(hours=ADMIN_SESSION_HOURS)))
@@ -384,6 +391,7 @@ def register(app, SessionLocal, engine) -> None:
                   "norefund": ("No payment from the last days to refund.", ""),
                   "comp_granted": ("Complimentary access granted.", "ok"),
                   "comp_revoked": ("Complimentary access revoked.", "ok"),
+                  "bad_date": ("That date is not valid - use the date picker.", ""),
                   "session_revoked": ("Session revoked.", "ok"),
                   "sessions_revoked": ("Signed out everywhere.", "ok"),
                   "bad_confirm": ("Type the account's email exactly to confirm deletion.", "")}
@@ -450,7 +458,10 @@ def register(app, SessionLocal, engine) -> None:
         recs = s.scalars(select(Record).where(Record.user_id == user.id, Record.deleted.is_(False),
                                               Record.kind.in_(("lift", "bodyweight", "bodyfat")))
                          .order_by(Record.updated.desc())).all()
-        lifts = [r for r in recs if r.kind == "lift"][:100]
+        def set_order(r):  # newest training first: by the set's own date/week/day/set, not its sync time
+            d = json.loads(r.data) if r.data else {}
+            return (str(d.get("date") or ""), d.get("week") or 0, d.get("day") or 0, d.get("set_no") or 0)
+        lifts = sorted((r for r in recs if r.kind == "lift"), key=set_order, reverse=True)[:100]
         bw = [r for r in recs if r.kind == "bodyweight"][:50]
         bf = [r for r in recs if r.kind == "bodyfat"][:50]
 
@@ -517,8 +528,14 @@ def register(app, SessionLocal, engine) -> None:
         user = s.get(User, user_id)
         if not user:
             raise HTTPException(404)
-        if action == "grant" and until:
-            user.comp_until = datetime.fromisoformat(until) + timedelta(days=1)
+        if action not in ("grant", "revoke"):
+            raise HTTPException(400, "Unknown action")
+        if action == "grant":
+            try:
+                comp_end = datetime.fromisoformat(until) + timedelta(days=1)
+            except ValueError:
+                return RedirectResponse(f"/admin/users/{user.id}?msg=bad_date", status_code=303)
+            user.comp_until = comp_end
             s.commit()
             audit(s, admin_user, "comp_granted", request, user.id, f"until {until}")
             return RedirectResponse(f"/admin/users/{user.id}?msg=comp_granted", status_code=303)

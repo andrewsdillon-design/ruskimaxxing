@@ -342,10 +342,14 @@ def erase_user(s: Session, user: "User") -> None:
     s.commit()
 
 
+DUMMY_HASH = ph.hash(secrets.token_urlsafe(16))
+
+
 def check_password(s: Session, email: str, password: str) -> "User | None":
     user = s.scalar(select(User).where(User.email == email.strip().lower()))
     try:
-        ok = bool(user) and ph.verify(user.password_hash, password)
+        # verify against a dummy hash for unknown emails too, so response time doesn't reveal which accounts exist
+        ok = ph.verify(user.password_hash if user else DUMMY_HASH, password) and bool(user)
     except (VerifyMismatchError, InvalidHashError):
         ok = False
     if ok and ph.check_needs_rehash(user.password_hash):

@@ -162,23 +162,30 @@ def make_engine(url: str | None = None):
     url = url or os.environ.get("DATABASE_URL", "sqlite:///./ruskimaxxing_cloud.db")
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True}
     engine = create_engine(url, **kwargs)
-    Base.metadata.create_all(engine)
-    add_missing_columns(engine)
+    if engine.dialect.name == "postgresql":
+        # several uvicorn workers start at once: let only one create tables / add columns at a time
+        with engine.begin() as conn:
+            conn.execute(text("SELECT pg_advisory_xact_lock(815100)"))
+            Base.metadata.create_all(conn)
+            add_missing_columns(conn)
+    else:
+        Base.metadata.create_all(engine)
+        with engine.begin() as conn:
+            add_missing_columns(conn)
     return engine
 
 
-def add_missing_columns(engine) -> None:
+def add_missing_columns(conn) -> None:
     """Tiny forward-only migration: add columns introduced after a table was first created."""
-    have = {c["name"] for c in inspect(engine).get_columns("users")}
+    have = {c["name"] for c in inspect(conn).get_columns("users")}
     wanted = {"stripe_customer": "VARCHAR(100)", "plan_status": "VARCHAR(30) DEFAULT ''",
               "plan_until": "TIMESTAMP", "cancel_at_period_end": "BOOLEAN DEFAULT FALSE",
               "reminder_for": "TIMESTAMP", "is_admin": "BOOLEAN DEFAULT FALSE", "totp_secret": "VARCHAR(64)",
               "totp_last_step": "INTEGER", "coaching_consent_at": "TIMESTAMP",
               "coaching_consent_version": "VARCHAR(20)", "comp_until": "TIMESTAMP", "last_sync_at": "TIMESTAMP"}
-    with engine.begin() as conn:
-        for name, decl in wanted.items():
-            if name not in have:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {decl}"))
+    for name, decl in wanted.items():
+        if name not in have:
+            conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {decl}"))
 
 
 # ----- billing ----------------------------------------------------------------------

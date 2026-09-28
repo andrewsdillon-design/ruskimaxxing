@@ -1450,8 +1450,8 @@ one person's log on its own.</li>
 a program year, withdrawable and re-grantable any time at <a href="/account/program">/account/program</a>), we
 can also view your individual synced training log, bodyweight, body fat and settings, in order to personalize
 your program and coach you directly. Every time we (a human operator, via the admin tools) look at a consented
-user's individual data, that view is logged. Without your consent, we can't see your individual data at all -
-only aggregate counts.</li></ul>
+user's individual data, that view is logged. Without your consent, our admin tools show us only counts and
+storage size for your account, never your training data, and we don't look at it any other way.</li></ul>
 <h2>Streak photos</h2>
 <p>If you use the streak feature, your barbell photo is processed entirely in memory on our server at the moment
 you submit it, to compute a perceptual fingerprint (so we can reject an obviously reused photo) and, if present,
@@ -1462,8 +1462,8 @@ discard it immediately after processing.</b> We keep only the date, when we rece
 <li>We don't publish or share anyone's individual data, including in program research.</li>
 <li>We don't store streak photos, and we don't verify what's actually in them.</li></ul>
 <h2>Your control</h2>
-<ul><li>Delete your account and all synced data at any time from the app (Setup / Start - Cloud backup -
-Delete account). Deletion is immediate and permanent.</li>
+<ul><li>Delete your account and all synced data at any time: log in at <a href="/account">/account</a> and choose
+Delete account. Deletion is immediate and permanent.</li>
 <li>Your data also stays on your own device; the app works without an account.</li>
 <li>If your plan ends, backups pause but nothing is deleted - you can still restore, or delete it yourself.</li>
 <li>Withdraw coaching consent at any time at <a href="/account/program">/account/program</a>; we immediately lose
@@ -1474,8 +1474,8 @@ access to your individual training data. Your purchased program years keep worki
 TERMS = """
 <p><i>Last updated {updated}</i></p>
 <p>These Terms cover the RuskiMaxxing Cloud service at {base} ("the Service"), run by {operator} ("we", "us").
-The RuskiMaxxing apps and spreadsheets are free. Accounts are free. The only paid part is the optional
-<b>Cloud Backup</b> plan described below. The Service is offered to people in the United States. By creating an
+The RuskiMaxxing apps, spreadsheets and Year 1 program are free. Accounts are free. The paid parts are the
+optional <b>Cloud Backup</b> plan (Sections 4-7) and optional <b>program years</b> (Section 8). The Service is offered to people in the United States. By creating an
 account or subscribing you agree to these Terms and to our <a href="/privacy">Privacy Policy</a>.</p>
 
 <h2>1. Who can use it</h2>
@@ -1528,8 +1528,8 @@ Service, or close your account when you haven't broken these Terms, we'll refund
 <h2>7. When a plan ends</h2>
 <p>Backups pause, but <b>nothing is deleted</b>: you can still restore your saved data in the app at any time. If
 we ever decide to remove data from accounts that have been inactive for a long time, we'll email you at least 60
-days first. You can delete your account and all your data yourself at any time in the app (Cloud backup &rarr;
-Delete account).</p>
+days first. You can delete your account and all your data yourself at any time: log in at
+<a href="/account">/account</a> and choose Delete account.</p>
 
 <h2>8. Program years (one-time purchases)</h2>
 <ul>

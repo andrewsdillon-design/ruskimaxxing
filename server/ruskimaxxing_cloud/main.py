@@ -89,6 +89,13 @@ class User(Base):
     plan_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
     reminder_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # renewal date last reminded
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(Integer, nullable=True)  # replay protection
+    coaching_consent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    coaching_consent_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    comp_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # admin-granted free access
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class LoginSession(Base):
@@ -130,6 +137,27 @@ class Record(Base):
     seq: Mapped[int] = mapped_column(Integer, index=True)  # per-user change counter for incremental pulls
 
 
+class AdminSession(Base):
+    """A logged-in admin's browser session (separate cookie/table from the lifter-facing sessions)."""
+    __tablename__ = "admin_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    csrf_token: Mapped[str] = mapped_column(String(64))
+    expires: Mapped[datetime] = mapped_column(DateTime)
+
+
+class AuditLog(Base):
+    """Every admin action that touches a user's account or data. Never store secrets/passwords/codes here."""
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    admin_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(60))
+    target_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 def make_engine(url: str | None = None):
     url = url or os.environ.get("DATABASE_URL", "sqlite:///./ruskimaxxing_cloud.db")
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True}
@@ -144,7 +172,9 @@ def add_missing_columns(engine) -> None:
     have = {c["name"] for c in inspect(engine).get_columns("users")}
     wanted = {"stripe_customer": "VARCHAR(100)", "plan_status": "VARCHAR(30) DEFAULT ''",
               "plan_until": "TIMESTAMP", "cancel_at_period_end": "BOOLEAN DEFAULT FALSE",
-              "reminder_for": "TIMESTAMP"}
+              "reminder_for": "TIMESTAMP", "is_admin": "BOOLEAN DEFAULT FALSE", "totp_secret": "VARCHAR(64)",
+              "totp_last_step": "INTEGER", "coaching_consent_at": "TIMESTAMP",
+              "coaching_consent_version": "VARCHAR(20)", "comp_until": "TIMESTAMP", "last_sync_at": "TIMESTAMP"}
     with engine.begin() as conn:
         for name, decl in wanted.items():
             if name not in have:
@@ -164,6 +194,8 @@ def complimentary(user) -> bool:
 def plan_active(user) -> bool:
     if not billing_on() or complimentary(user):
         return True
+    if user.comp_until is not None and user.comp_until > utcnow():
+        return True  # admin-granted complimentary access until a date
     return (user.plan_status in ACTIVE_STATUSES and user.plan_until is not None
             and user.plan_until + PLAN_GRACE > utcnow())
 
@@ -282,8 +314,60 @@ class SyncRequest(BaseModel):
     changes: list[Change] = []
 
 
+def same_origin(request: Request):
+    """Forms only accept posts from this site (plus SameSite cookies) - basic CSRF protection."""
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != public_url(request):
+        raise HTTPException(403, "Bad origin")
+
+
+def create_user(s: Session, email: str, password: str) -> "User":
+    email = email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 320:
+        raise HTTPException(400, "Enter a valid email address")
+    if len(password) < 8:
+        raise HTTPException(400, "Use a password of at least 8 characters")
+    if s.scalar(select(User).where(User.email == email)):
+        raise HTTPException(409, "That email already has an account - log in instead")
+    user = User(email=email, password_hash=ph.hash(password))
+    s.add(user)
+    s.flush()
+    return user
+
+
+def erase_user(s: Session, user: "User") -> None:
+    for model in (Record, LoginSession, ResetToken, AppLink, AdminSession):
+        s.execute(delete(model).where(model.user_id == user.id))
+    s.delete(user)
+    s.commit()
+
+
+def check_password(s: Session, email: str, password: str) -> "User | None":
+    user = s.scalar(select(User).where(User.email == email.strip().lower()))
+    try:
+        ok = bool(user) and ph.verify(user.password_hash, password)
+    except (VerifyMismatchError, InvalidHashError):
+        ok = False
+    if ok and ph.check_needs_rehash(user.password_hash):
+        user.password_hash = ph.hash(password)
+    return user if ok else None
+
+
+def request_reset(s: Session, email: str) -> None:
+    user = s.scalar(select(User).where(User.email == email.strip().lower()))
+    if user and mail_on():
+        token = secrets.token_urlsafe(32)
+        s.add(ResetToken(token_hash=digest(token), user_id=user.id, expires=utcnow() + timedelta(hours=1)))
+        s.commit()
+        link = f"{public_url()}/reset?token={token}"
+        send_mail(user.email, "Reset your RuskiMaxxing password",
+                  f"Reset your password within 1 hour:\n\n{link}\n\nIf you didn't ask for this, ignore it.")
+
+
 # ----- app --------------------------------------------------------------------------
 def create_app(database_url: str | None = None) -> FastAPI:
+    from . import admin  # deferred import: admin.py imports names from this module at its own import time
+
     engine = make_engine(database_url)
     SessionLocal = sessionmaker(engine, expire_on_commit=False)
     app = FastAPI(title="RuskiMaxxing Cloud", docs_url=None, redoc_url=None)
@@ -307,45 +391,6 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get("/health")
     def health():
         return {"ok": True}
-
-    def create_user(s: Session, email: str, password: str) -> User:
-        email = email.strip().lower()
-        if "@" not in email or "." not in email.split("@")[-1] or len(email) > 320:
-            raise HTTPException(400, "Enter a valid email address")
-        if len(password) < 8:
-            raise HTTPException(400, "Use a password of at least 8 characters")
-        if s.scalar(select(User).where(User.email == email)):
-            raise HTTPException(409, "That email already has an account - log in instead")
-        user = User(email=email, password_hash=ph.hash(password))
-        s.add(user)
-        s.flush()
-        return user
-
-    def erase_user(s: Session, user: User) -> None:
-        for model in (Record, LoginSession, ResetToken, AppLink):
-            s.execute(delete(model).where(model.user_id == user.id))
-        s.delete(user)
-        s.commit()
-
-    def check_password(s: Session, email: str, password: str) -> User | None:
-        user = s.scalar(select(User).where(User.email == email.strip().lower()))
-        try:
-            ok = bool(user) and ph.verify(user.password_hash, password)
-        except (VerifyMismatchError, InvalidHashError):
-            ok = False
-        if ok and ph.check_needs_rehash(user.password_hash):
-            user.password_hash = ph.hash(password)
-        return user if ok else None
-
-    def request_reset(s: Session, email: str) -> None:
-        user = s.scalar(select(User).where(User.email == email.strip().lower()))
-        if user and mail_on():
-            token = secrets.token_urlsafe(32)
-            s.add(ResetToken(token_hash=digest(token), user_id=user.id, expires=utcnow() + timedelta(hours=1)))
-            s.commit()
-            link = f"{public_url()}/reset?token={token}"
-            send_mail(user.email, "Reset your RuskiMaxxing password",
-                      f"Reset your password within 1 hour:\n\n{link}\n\nIf you didn't ask for this, ignore it.")
 
     @app.post("/api/register")
     def register(body: Credentials, s: Session = Depends(db)):
@@ -427,6 +472,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 s.add(rec)
             rec.kind, rec.updated, rec.deleted, rec.seq = c.kind, c.updated, c.deleted, seq
             rec.data = None if c.deleted else json.dumps(c.data)
+        user.last_sync_at = utcnow()
         s.commit()
         rows = s.scalars(select(Record).where(Record.user_id == user.id, Record.edition == body.edition,
                                               Record.seq > body.since).order_by(Record.seq)).all()
@@ -447,12 +493,6 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def web_user(s: Session, token: str | None):
         row = s.get(LoginSession, digest(token)) if token else None
         return s.get(User, row.user_id) if row and row.expires >= utcnow() else None
-
-    def same_origin(request: Request):
-        """Forms only accept posts from this site (plus SameSite cookies) - basic CSRF protection."""
-        origin = request.headers.get("origin")
-        if origin and origin.rstrip("/") != public_url(request):
-            raise HTTPException(403, "Bad origin")
 
     @app.get("/account", response_class=HTMLResponse)
     def account(request: Request, paid: int = 0, msg: str = "", error: int = 0, next: str = "/account",
@@ -738,6 +778,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def terms(request: Request):
         return page("Terms of Service", terms_html(public_url(request)))
 
+    admin.register(app, SessionLocal, engine)
     app.state.engine = engine
     return app
 

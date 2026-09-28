@@ -1,8 +1,10 @@
-"""One-time Stripe setup for paid cloud backup ($20/year, no trial).
+"""One-time Stripe setup for paid cloud backup ($20/year, no trial) and the one-time program-year purchases
+(Year 2, Year 3, ... - see PROGRAM_YEAR_PRICES in ruskimaxxing_cloud.main).
 
 Creates (or reuses) in YOUR Stripe account:
   * product "RuskiMaxxing Cloud Backup" with a $20/year price (lookup key ruskimaxxing_cloud_yearly)
-  * a webhook to https://<your api domain>/stripe/webhook for the subscription events the server uses
+  * one product + one-time price per configured program year (lookup key ruskimaxxing_program_yearN)
+  * a webhook to https://<your api domain>/stripe/webhook for the subscription + checkout events the server uses
   * a customer-portal configuration (cancel, update card, invoices) if you don't have one
 
 Run it on the VPS after install.sh, with the secret key from Stripe Dashboard -> Developers -> API keys
@@ -12,6 +14,10 @@ Run it on the VPS after install.sh, with the secret key from Stripe Dashboard ->
         /opt/ruskimaxxing-cloud/app/server/deploy/setup_stripe.py https://api.your-domain.com \\
         --write /etc/ruskimaxxing-cloud.env
     sudo systemctl restart ruskimaxxing-cloud
+
+Program-year prices are looked up by lookup_key at checkout time (see main.py), so nothing about them
+needs to be written to the env file - just make sure PROGRAM_YEAR_PRICES (if you're not using the default
+"2:19900,3:29900") is set before running this script, so the right years/amounts get created.
 """
 
 import argparse
@@ -22,8 +28,38 @@ from pathlib import Path
 
 LOOKUP_KEY = "ruskimaxxing_cloud_yearly"
 PRICE_CENTS, CURRENCY = 2000, "usd"
+PROGRAM_YEAR_LOOKUP_PREFIX = "ruskimaxxing_program_year"   # kept in sync with main.py by hand - simple constant
 EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated",
           "customer.subscription.deleted"]
+
+
+def program_year_prices() -> dict:
+    """Same parsing as ruskimaxxing_cloud.main.program_year_prices - duplicated so this script has no
+    import-time dependency on the app package (see test_setup_stripe_script_creates_then_reuses)."""
+    raw = os.environ.get("PROGRAM_YEAR_PRICES", "2:19900,3:29900")
+    out = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        year, cents = part.split(":")
+        out[int(year)] = int(cents)
+    return out
+
+
+def setup_program_years(stripe) -> None:
+    for year, cents in sorted(program_year_prices().items()):
+        lookup_key = f"{PROGRAM_YEAR_LOOKUP_PREFIX}{year}"
+        prices = stripe.Price.list(lookup_keys=[lookup_key], active=True, limit=1).data
+        if prices:
+            print(f"Using existing price {prices[0].id} for Program Year {year}")
+            continue
+        product = stripe.Product.create(name=f"RuskiMaxxing Year {year}",
+                                        description=f"RuskiMaxxing program Year {year} (one-time purchase)")
+        price = stripe.Price.create(product=product.id, unit_amount=cents, currency=CURRENCY,
+                                    lookup_key=lookup_key)
+        print(f"Created product {product.id} and ${cents / 100:,.0f} one-time price {price.id} for "
+              f"Program Year {year}")
 
 
 def setup(stripe, api_url: str) -> dict:
@@ -42,6 +78,7 @@ def setup(stripe, api_url: str) -> dict:
                                     recurring={"interval": "year"}, lookup_key=LOOKUP_KEY)
         print(f"Created product {product.id} and $20/year price {price.id}")
     env["STRIPE_PRICE_ID"] = price.id
+    setup_program_years(stripe)
 
     hook_url = f"{api_url}/stripe/webhook"
     existing = [w for w in stripe.WebhookEndpoint.list(limit=100).data if w.url == hook_url]

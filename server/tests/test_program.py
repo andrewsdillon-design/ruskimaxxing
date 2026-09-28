@@ -214,3 +214,46 @@ def test_api_me_program_years_defaults_to_year_one(client):
     me = client.get("/api/me", headers=_auth_header(client, "lifter@example.com")).json()
     assert me["program_years"] == [1]
     assert "streak" not in me or me.get("streak") is None
+
+
+def test_setup_stripe_creates_one_price_per_program_year(tmp_path, monkeypatch):
+    """setup_stripe.py creates a distinct one-time price per configured program year, and reuses them."""
+    import importlib.util
+    from types import SimpleNamespace as NS
+    monkeypatch.setenv("PROGRAM_YEAR_PRICES", "2:19900,3:29900")
+    spec = importlib.util.spec_from_file_location("setup_stripe", Path(__file__).parent.parent / "deploy" /
+                                                  "setup_stripe.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    prices_by_lookup_key: dict[str, object] = {}
+    counter = {"n": 0}
+
+    class PriceAPI:
+        def list(self, lookup_keys=None, **kw):
+            key = (lookup_keys or [None])[0]
+            existing = prices_by_lookup_key.get(key)
+            return NS(data=[existing] if existing else [])
+
+        def create(self, **kw):
+            counter["n"] += 1
+            price = NS(id=f"price_{counter['n']}", **kw)
+            prices_by_lookup_key[kw.get("lookup_key")] = price
+            return price
+
+    fake = NS(Price=PriceAPI(), Product=NS(create=lambda **kw: NS(id=f"prod_{counter['n']}")),
+             WebhookEndpoint=NS(list=lambda **kw: NS(data=[]),
+                                create=lambda **kw: NS(id="we_1", secret="whsec_1", url=kw["url"])),
+             billing_portal=NS(Configuration=NS(list=lambda **kw: NS(data=[]), create=lambda **kw: NS(id="bpc_1"))))
+
+    mod.setup(fake, "https://api.x.com")
+    assert "ruskimaxxing_cloud_yearly" in prices_by_lookup_key
+    assert "ruskimaxxing_program_year2" in prices_by_lookup_key
+    assert "ruskimaxxing_program_year3" in prices_by_lookup_key
+    assert prices_by_lookup_key["ruskimaxxing_program_year2"].unit_amount == 19900
+    assert prices_by_lookup_key["ruskimaxxing_program_year3"].unit_amount == 29900
+    assert "recurring" not in prices_by_lookup_key["ruskimaxxing_program_year2"].__dict__  # one-time, not subscription
+
+    made_after_first_run = dict(prices_by_lookup_key)
+    mod.setup(fake, "https://api.x.com")  # second run: everything already exists, nothing new created
+    assert prices_by_lookup_key == made_after_first_run

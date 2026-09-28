@@ -1280,7 +1280,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
         contact = html.escape(contact_email())
-        return page("Privacy policy", PRIVACY.format(contact=contact, host=html.escape(request.url.hostname or "")))
+        return page("Privacy policy", PRIVACY.format(contact=contact, host=html.escape(request.url.hostname or ""),
+                                                      updated=TERMS_UPDATED))
 
     @app.get("/terms", response_class=HTMLResponse)
     def terms(request: Request):
@@ -1370,11 +1371,18 @@ def subscribe_form(base: str, error: int = 0) -> str:
       <p><button>Subscribe - {PLAN_PRICE}</button></p></div></form>"""
 
 
+def program_years_terms_list() -> str:
+    items = "".join(f"<li>Year {year}: {format_price(cents)}, plus any sales tax that applies where you live.</li>"
+                    for year, cents in sorted(program_year_prices().items()))
+    return items or "<li>No further program years are on sale yet.</li>"
+
+
 def terms_html(base: str) -> str:
     operator = html.escape(os.environ.get("OPERATOR_NAME", "") or "the operator of this site")
     state = html.escape(os.environ.get("GOVERNING_STATE", "") or "the U.S. state where the operator is located")
     return TERMS.format(operator=operator, state=state, contact=html.escape(contact_email()), base=base,
-                        price=PLAN_PRICE_PLAIN, days=REFUND_DAYS, updated=TERMS_UPDATED)
+                        price=PLAN_PRICE_PLAIN, days=REFUND_DAYS, updated=TERMS_UPDATED,
+                        program_years_list=program_years_terms_list(), call_price=CALL_PRICE_PLAIN)
 
 
 def send_mail(to: str, subject: str, text: str) -> None:
@@ -1409,27 +1417,48 @@ a{{color:#4A1942}}</style></head>
 
 
 PRIVACY = """
+<p><i>Last updated {updated}</i></p>
 <p>RuskiMaxxing Cloud ({host}) stores a backup of the training data you choose to sync from the
 RuskiMaxxing apps so you can restore it on another device. The apps are free; cloud backup is a paid
-yearly plan. Payments are handled by Stripe - we never see or store your card number.</p>
+yearly plan, and further program years are optional one-time purchases. Payments are handled by Stripe -
+we never see or store your card number.</p>
 <h2>What we store</h2>
 <ul><li>Your email address and a one-way hash of your password (never the password itself).</li>
-<li>Your Stripe customer id and plan status (active / ended and the renewal date).</li>
+<li>Your Stripe customer id, plan status (active / ended and the renewal date), and program-year purchase
+records (year, amount, date, and whether it was refunded).</li>
 <li>Your training log (sets, weights, reps, RPE, notes), bodyweight, body fat measurements and program settings
-such as height and start date.</li></ul>
+such as height and start date.</li>
+<li>If you check in for a streak: the date, the time we received your check-in, and a fingerprint of the photo
+(never the photo itself - see "Streak photos" below).</li>
+<li>Whether you've granted coaching consent, when, under which version of that consent, and a history of
+grants/withdrawals.</li></ul>
 <h2>How we use it</h2>
-<ul><li>To back up and restore your data, and to run your account and plan.</li>
-<li>To improve the training programs, including building future years (such as Year 2). For this we only look at
-training results combined across many users and stripped of anything that identifies you: never your email,
-and never one person's log on its own.</li></ul>
+<ul><li>To back up and restore your data, and to run your account, plan and program-year purchases.</li>
+<li>To improve the training programs, including building future years. For this we only look at training
+results combined across many users and stripped of anything that identifies you: never your email, and never
+one person's log on its own.</li>
+<li><b>Coaching consent:</b> if - and only if - you've checked the coaching-consent box (required before buying
+a program year, withdrawable and re-grantable any time at <a href="/account/program">/account/program</a>), we
+can also view your individual synced training log, bodyweight, body fat and settings, in order to personalize
+your program and coach you directly. Every time we (a human operator, via the admin tools) look at a consented
+user's individual data, that view is logged. Without your consent, we can't see your individual data at all -
+only aggregate counts.</li></ul>
+<h2>Streak photos</h2>
+<p>If you use the streak feature, your barbell photo is processed entirely in memory on our server at the moment
+you submit it, to compute a perceptual fingerprint (so we can reject an obviously reused photo) and, if present,
+read the photo's EXIF timestamp. <b>The photo itself is never written to disk, a database, or a log, and we
+discard it immediately after processing.</b> We keep only the date, when we received it, and that fingerprint.</p>
 <h2>What we don't do</h2>
 <ul><li>We don't sell or share your data, show ads, or use trackers.</li>
-<li>We don't publish or share anyone's individual data, including in program research.</li></ul>
+<li>We don't publish or share anyone's individual data, including in program research.</li>
+<li>We don't store streak photos, and we don't verify what's actually in them.</li></ul>
 <h2>Your control</h2>
 <ul><li>Delete your account and all synced data at any time from the app (Setup / Start - Cloud backup -
 Delete account). Deletion is immediate and permanent.</li>
 <li>Your data also stays on your own device; the app works without an account.</li>
-<li>If your plan ends, backups pause but nothing is deleted - you can still restore, or delete it yourself.</li></ul>
+<li>If your plan ends, backups pause but nothing is deleted - you can still restore, or delete it yourself.</li>
+<li>Withdraw coaching consent at any time at <a href="/account/program">/account/program</a>; we immediately lose
+access to your individual training data. Your purchased program years keep working either way.</li></ul>
 <p>See also the <a href="/terms">Terms of Service</a>. Questions: {contact}.</p>
 """
 
@@ -1493,50 +1522,83 @@ we ever decide to remove data from accounts that have been inactive for a long t
 days first. You can delete your account and all your data yourself at any time in the app (Cloud backup &rarr;
 Delete account).</p>
 
-<h2>8. Your data</h2>
+<h2>8. Program years (one-time purchases)</h2>
+<ul>
+{program_years_list}
+<li>Program years beyond the free Year 1 built into the app are sold <b>only on this website</b>, as
+<b>one-time purchases</b> - not subscriptions, and not covered by the automatic-renewal rules in Section 4. The
+apps themselves never sell or advertise a program year.</li>
+<li>You must already own the program year before the one you're buying (for example, Year 3 requires already
+owning Year 2).</li>
+<li>Buying a program year unlocks that year's personalized program in the app, built from your own synced
+training data, plus light coaching from us - which requires the coaching consent described in Section 9.</li>
+<li><b>Full refund within {days} days</b> of that purchase, same window as Section 6. Only your <b>most recently
+purchased year</b> can be refunded, so the year-to-year ownership chain stays valid. Use "Refund" at
+<a href="/account/program">{base}/account/program</a> or email {contact}.</li>
+</ul>
+
+<h2>9. Coaching consent</h2>
+<p>Before you can buy a program year, you must separately check a box agreeing that we can view and use your
+synced training data (workouts, bodyweight, body fat and settings) to personalize your program and coach you.
+This consent is the <b>only</b> way we get access to your individual data - see the
+<a href="/privacy">Privacy Policy</a>. You can withdraw it at any time at
+<a href="/account/program">{base}/account/program</a>; your purchased program years keep working either way. If
+you later want individual coaching again, you can re-grant consent the same way, as long as you own at least one
+paid program year.</p>
+
+<h2>10. Streaks and the coaching-call discount</h2>
+<p>If you own a paid program year, the app can track a training "streak": on each of your 3 scheduled training
+days a week, you submit a photo of a loaded barbell. <b>We don't verify that a barbell is actually in the
+photo</b> - the streak is an honor-system habit tool, not a graded assessment. Streak photos are processed only in
+memory on our server and are <b>never saved</b> to disk, a database, or a log; we keep only the date, the time we
+received it, and a fingerprint used to reject an obviously reused photo (see the Privacy Policy). A long streak
+reduces the price of a coaching call ({call_price}: 10% off per full 90-day streak, capped at 50%). Coaching calls
+themselves aren't bookable through the Service yet; when they are, any discount you've built will apply.</p>
+
+<h2>11. Your data</h2>
 <p>Your training data is yours. You let us store and process it only to run the Service, as described in the
 <a href="/privacy">Privacy Policy</a> (including the combined, de-identified use it explains). We don't sell it.</p>
 
-<h2>9. Acceptable use</h2>
+<h2>12. Acceptable use</h2>
 <p>Don't access other people's accounts, try to break or overload the Service, use it to store anything other than
 your own training data, or use it for anything illegal. We may suspend accounts that do.</p>
 
-<h2>10. Availability and backups</h2>
+<h2>13. Availability and backups</h2>
 <p>We work to keep the Service running and back up its database every night, but it may sometimes be down for
 maintenance or problems outside our control. The apps keep a full copy of your data on your device, so you can
 keep training while offline.</p>
 
-<h2>11. Open-source software</h2>
+<h2>14. Open-source software</h2>
 <p>The RuskiMaxxing apps and this server's code are free, open-source software under the MIT License. These Terms
 cover the hosted Service we run, not your use of the code. The RuskiMaxxing name and eagle logo aren't licensed
 for others to use as their own brand.</p>
 
-<h2>12. Disclaimer</h2>
+<h2>15. Disclaimer</h2>
 <p>To the extent the law allows, the Service is provided "as is" and "as available", without warranties of any
 kind, including merchantability, fitness for a particular purpose and non-infringement.</p>
 
-<h2>13. Limit of liability</h2>
+<h2>16. Limit of liability</h2>
 <p>To the extent the law allows, we aren't liable for indirect, incidental, special or consequential damages,
 or for lost data or profits, and our total liability for any claim about the Service is limited to the amount
 you paid us in the 12 months before the claim. Some states don't allow some of these limits, so they may not
 apply to you.</p>
 
-<h2>14. Ending the agreement</h2>
+<h2>17. Ending the agreement</h2>
 <p>You can stop using the Service and delete your account at any time. We may suspend or close accounts that
 break these Terms. If we close your account without you having broken them, we'll refund the unused part of your
 plan year.</p>
 
-<h2>15. Changes to these Terms</h2>
+<h2>18. Changes to these Terms</h2>
 <p>If we make a material change, we'll email account holders at least 30 days before it takes effect and update
-the date above. If you don't agree, you can cancel, and the 30-day refund in section 6 still applies to your
-latest payment.</p>
+the date above. If you don't agree, you can cancel, and the 30-day refund in Section 6 (or Section 8 for a
+program year) still applies to your latest payment.</p>
 
-<h2>16. Law and disputes</h2>
+<h2>19. Law and disputes</h2>
 <p>These Terms are governed by the laws of {state} and applicable U.S. federal law. Please email {contact} first
 so we can try to sort out any problem informally. Either of us may bring a claim in small-claims court if it
 qualifies. Nothing in these Terms takes away rights you have under consumer-protection laws that can't be waived.</p>
 
-<h2>17. Contact</h2>
+<h2>20. Contact</h2>
 <p>{contact}</p>
 """
 

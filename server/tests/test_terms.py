@@ -49,6 +49,20 @@ def test_terms_page(client, monkeypatch):
     assert 'href="/terms"' in client.get("/privacy").text
 
 
+def test_terms_page_covers_program_years_and_consent(client):
+    text = client.get("/terms").text
+    for needed in ("Program years", "Year 2: $199", "Year 3: $299", "one-time purchase", "Coaching consent",
+                   "withdraw", "never saved", "barbell", "we don't verify", "50%"):
+        assert needed.lower() in text.lower(), needed
+    assert "September 28, 2026" in text
+
+
+def test_privacy_page_covers_program_years_and_streaks(client):
+    text = client.get("/privacy").text
+    for needed in ("coaching consent", "program-year purchase", "streak", "never written", "September 28, 2026"):
+        assert needed.lower() in text.lower(), needed
+
+
 def test_subscribe_box_shows_renewal_terms(client):
     login(client)
     page = client.get("/account").text

@@ -497,7 +497,9 @@ def stripe_checkout_program_year(user, base: str, year: int, consent_version: st
     if user.stripe_customer:
         params["customer"] = user.stripe_customer
     else:
+        # one-time payments don't create a Customer unless asked; we want one so billing links stay together
         params["customer_email"] = user.email
+        params["customer_creation"] = "always"
     return stripe.checkout.Session.create(**params).url
 
 

@@ -338,6 +338,37 @@ def test_recent_sets_are_newest_training_first(client, app):
     assert page.index("2026-01-19") < page.index("2026-01-12") < page.index("2026-01-05")
 
 
+def test_user_detail_shows_program_years_and_consent_history(client, app):
+    logged_in_client(client, app)
+    uid = make_user(app, "buyer@example.com")
+    with m.Session(app.state.engine) as s:
+        s.add(m.ProgramPurchase(user_id=uid, year=2, amount_cents=19900, purchased_at=m.utcnow()))
+        s.add(m.ConsentEvent(user_id=uid, at=m.utcnow(), action="grant", version="2026-09-28", source="purchase"))
+        s.commit()
+    page = client.get(f"/admin/users/{uid}").text
+    assert "Program years" in page and "$199" in page and "grant" in page and "purchase" in page
+
+
+def test_billing_page_shows_program_year_sales(client, app):
+    logged_in_client(client, app)
+    uid = make_user(app, "buyer2@example.com")
+    with m.Session(app.state.engine) as s:
+        s.add(m.ProgramPurchase(user_id=uid, year=2, amount_cents=19900, purchased_at=m.utcnow()))
+        s.commit()
+    page = client.get("/admin/billing").text
+    assert "Program-year sales" in page and "Year 2" in page
+
+
+def test_dashboard_shows_program_year_revenue(client, app):
+    logged_in_client(client, app)
+    uid = make_user(app, "buyer3@example.com")
+    with m.Session(app.state.engine) as s:
+        s.add(m.ProgramPurchase(user_id=uid, year=3, amount_cents=29900, purchased_at=m.utcnow()))
+        s.commit()
+    page = client.get("/admin").text
+    assert "Program-year revenue" in page and "$299" in page
+
+
 def test_unknown_email_still_runs_password_hash(monkeypatch, app):
     calls, real = [], m.ph
 

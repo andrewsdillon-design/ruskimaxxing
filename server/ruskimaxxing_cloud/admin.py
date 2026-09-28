@@ -31,10 +31,11 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from . import totp
-from .main import (ACTIVE_STATUSES, AdminSession, AuditLog, EDITIONS, KINDS, LoginSession, PLAN_PRICE_PLAIN,
-                   REFUND_DAYS, Record, User, billing_on, check_password, complimentary, contact_email,
-                   digest, erase_user, mail_on, plan_active, public_url, request_reset, same_origin,
-                   send_mail, stripe_refund_latest, utcnow)
+from .main import (ACTIVE_STATUSES, AdminSession, AuditLog, ConsentEvent, EDITIONS, KINDS, LoginSession,
+                   PLAN_PRICE_PLAIN, ProgramPurchase, REFUND_DAYS, Record, StreakCheck, User, billing_on,
+                   check_password, complimentary, contact_email, digest, erase_user, format_price, mail_on,
+                   owned_years, plan_active, public_url, request_reset, same_origin, send_mail, streak_summary,
+                   stripe_refund_latest, utcnow)
 
 ADMIN_COOKIE = "rmx_admin"
 ADMIN_SESSION_HOURS = 12
@@ -274,6 +275,9 @@ def register(app, SessionLocal, engine) -> None:
             price = 0.0
         revenue = active_paid * price
 
+        program_revenue_cents = s.scalar(select(func.coalesce(func.sum(ProgramPurchase.amount_cents), 0))
+                                         .where(ProgramPurchase.refunded_at.is_(None))) or 0
+
         weeks = []
         for i in range(11, -1, -1):
             start = (now - timedelta(days=now.weekday())) - timedelta(weeks=i)
@@ -288,6 +292,7 @@ def register(app, SessionLocal, engine) -> None:
             (lapsed, "Lapsed"), (signups_7, "Sign-ups, last 7 days"), (signups_30, "Sign-ups, last 30 days"),
             (synced_7, "Synced, last 7 days"), (total_records, "Total records"),
             (f"{total_storage / 1024:.1f} KB", "Total storage"), (f"${revenue:,.0f}", "Est. yearly revenue"),
+            (format_price(program_revenue_cents), "Program-year revenue"),
         ])
         body = f"""<div class="kpis">{kpis}</div>
         <div class="card"><h2>Sign-ups, last 12 weeks</h2>{chart}</div>"""
@@ -401,6 +406,32 @@ def register(app, SessionLocal, engine) -> None:
         record_table = "".join(f"<tr><td>{esc(edition)}</td><td>{esc(kind)}</td><td>{n}</td></tr>"
                                for edition, kinds in counts.items() for kind, n in kinds.items())
 
+        purchases = s.scalars(select(ProgramPurchase).where(ProgramPurchase.user_id == user.id)
+                              .order_by(ProgramPurchase.purchased_at.desc())).all()
+        purchase_rows = "".join(f"""<tr><td>{p.year}</td><td>{format_price(p.amount_cents)}</td>
+            <td>{fmt_dt(p.purchased_at)}</td><td>{fmt_dt(p.refunded_at) if p.refunded_at else '-'}</td></tr>"""
+                               for p in purchases)
+        consent_events = s.scalars(select(ConsentEvent).where(ConsentEvent.user_id == user.id)
+                                   .order_by(ConsentEvent.at.desc())).all()
+        consent_rows = "".join(f"<tr><td>{fmt_dt(c.at)}</td><td>{esc(c.action)}</td><td>{esc(c.source)}</td>"
+                              f"<td>{esc(c.version)}</td></tr>" for c in consent_events)
+        streak_checks_n = s.scalar(select(func.count()).select_from(StreakCheck)
+                                   .where(StreakCheck.user_id == user.id)) or 0
+        summary = streak_summary(s, user)
+        streak_line = (f"{summary['streak_days']} days &middot; {summary['discount_pct']}% call discount "
+                      f"&middot; {streak_checks_n} checks total" if summary else
+                      f"No active streak &middot; {streak_checks_n} checks total")
+
+        owned_str = ", ".join(f"Year {y}" for y in owned_years(s, user))
+        program_section = f"""<div class="card"><h3>Program years owned: {esc(owned_str)}</h3>
+        <p class="small">No photo from a streak check is ever stored - only its date, received time and a
+        fingerprint used to catch duplicates.</p>
+        <p>Streak: {streak_line}</p>
+        <h4>Purchases</h4><table><tr><th>Year</th><th>Amount</th><th>Purchased</th><th>Refunded</th></tr>
+        {purchase_rows or '<tr><td colspan=4>None (free Year 1 only)</td></tr>'}</table>
+        <h4>Consent history</h4><table><tr><th>When</th><th>Action</th><th>Source</th><th>Version</th></tr>
+        {consent_rows or '<tr><td colspan=4>None</td></tr>'}</table></div>"""
+
         if user.coaching_consent_at:
             audit(s, admin_user, "data_view", request, target_user_id=user.id)
             training = training_section(s, user)
@@ -420,6 +451,8 @@ def register(app, SessionLocal, engine) -> None:
 
         <div class="card"><h3>Records</h3><table><tr><th>Edition</th><th>Kind</th><th>Count</th></tr>
         {record_table or '<tr><td colspan=3>No records</td></tr>'}</table></div>
+
+        {program_section}
 
         <div class="card"><h3>Active sessions ({sum(1 for x in sessions if x.expires >= utcnow())})</h3>
         <table><tr><th>Expires</th><th>Status</th><th></th></tr>{sess_rows or '<tr><td colspan=3>None</td></tr>'}</table>
@@ -688,6 +721,20 @@ def register(app, SessionLocal, engine) -> None:
         refund_rows = "".join(f"<tr><td>{fmt_dt(r.at)}</td><td>{esc(admins.get(r.target_user_id, r.target_user_id))}</td>"
                               f"<td>{esc(admins.get(r.admin_user_id, '-'))}</td></tr>" for r in refunds)
 
+        purchases = s.scalars(select(ProgramPurchase)).all()
+        by_year: dict[int, dict[str, int]] = {}
+        for p in purchases:
+            row_ = by_year.setdefault(p.year, {"count": 0, "revenue": 0, "refunds": 0, "refund_amount": 0})
+            if p.refunded_at:
+                row_["refunds"] += 1
+                row_["refund_amount"] += p.amount_cents
+            else:
+                row_["count"] += 1
+                row_["revenue"] += p.amount_cents
+        program_rows = "".join(f"<tr><td>Year {y}</td><td>{d['count']}</td><td>{format_price(d['revenue'])}</td>"
+                              f"<td>{d['refunds']}</td><td>{format_price(d['refund_amount'])}</td></tr>"
+                              for y, d in sorted(by_year.items()))
+
         body = f"""<div class="card"><h3>Plans by status</h3><table><tr><th>Status</th><th>Users</th></tr>
         {status_rows or '<tr><td colspan=2>None</td></tr>'}</table></div>
         <div class="card"><h3>Renewing in the next 30 days</h3><table><tr><th>Email</th><th>Renews</th></tr>
@@ -696,6 +743,9 @@ def register(app, SessionLocal, engine) -> None:
         {cancel_rows or '<tr><td colspan=2>None</td></tr>'}</table></div>
         <div class="card"><h3>Refunds issued</h3><table><tr><th>When</th><th>User</th><th>By</th></tr>
         {refund_rows or '<tr><td colspan=3>None</td></tr>'}</table></div>
+        <div class="card"><h3>Program-year sales</h3><table><tr><th>Year</th><th>Active sales</th><th>Revenue</th>
+        <th>Refunds</th><th>Refunded amount</th></tr>
+        {program_rows or '<tr><td colspan=5>None yet</td></tr>'}</table></div>
         <p><a href="{stripe_base()}" target="_blank">Open Stripe dashboard</a></p>"""
         return admin_page("Billing", body, "billing", admin_user.email, row.csrf_token)
 

@@ -720,6 +720,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def health():
         return {"ok": True}
 
+    from .programs import router as programs_router
+    app.include_router(programs_router)
+
     @app.post("/api/register")
     def register(body: Credentials, s: Session = Depends(db)):
         user = create_user(s, body.email, body.password)

@@ -45,6 +45,33 @@ PROGRAMS = {
         "description": ("Westside-style upper/lower: max-effort and dynamic-effort days for the lower and upper body, "
                         "four days a week, on the same 12-week test calendar as Year 1."),
     },
+    "powerbuilding-2day": {
+        "edition": "standard",
+        "builder": "program_designs.powerbuilding_two_day",
+        "level": "All levels",
+        "name": "Powerbuilding 2-Day",
+        "description": ("Strength and size for men and women, two full-body days a week: a heavy top set and "
+                        "back-off sets on squat, bench, deadlift and press, then volume work for muscle. "
+                        "Same 12-week test calendar as the club."),
+    },
+    "powerbuilding-4day": {
+        "edition": "standard",
+        "builder": "program_designs.powerbuilding_four_day",
+        "level": "All levels",
+        "name": "Powerbuilding 4-Day",
+        "description": ("Strength and size for men and women, upper/lower four days a week: each main lift "
+                        "heavy once a week with top and back-off sets, plus variation and accessory volume. "
+                        "Same 12-week test calendar as the club."),
+    },
+    "531-leader-anchor": {
+        "edition": "standard",
+        "builder": "program_designs.five_three_one",
+        "level": "Intermediate",
+        "name": "5/3/1 Leader/Anchor",
+        "description": ("Jim Wendler's 5/3/1 for men and women, four days a week: two leader cycles of 5's PRO "
+                        "and Boring But Big, then an anchor with all-out + sets, on the club's 12-week test "
+                        "calendar. Slow, steady progress that lasts for years."),
+    },
     "strongman-conditioning": {
         "edition": "standard",
         "builder": "program_designs.strongman",

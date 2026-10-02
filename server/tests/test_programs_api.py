@@ -75,6 +75,43 @@ def test_strongman_addon(client):
     assert names <= set(prog["exercises"])
 
 
+@pytest.mark.parametrize("slug,days", [("powerbuilding-2day", 2), ("powerbuilding-4day", 4)])
+def test_powerbuilding(client, slug, days):
+    prog = client.get(f"/v1/programs/{slug}").json()
+    assert prog["kind"] == "program" and prog["days_per_week"] == days and len(prog["sessions"]) == 53 * days
+    week1 = [e for s in prog["sessions"] if s["week"] == 1 for e in s["exercises"]]
+    squat = [e for e in week1 if e["exercise"] == "Squat"]
+    assert [(e["sets"], e["reps"], e["percent"]) for e in squat] == [(1, "6", 75.0), (3, "8", 70.0)]
+    peak = [e for s in prog["sessions"] if s["week"] == 10 for e in s["exercises"] if e["exercise"] == "Squat"]
+    assert peak[0]["reps"] == "2" and peak[0]["percent"] == 90.0
+    tests = {e["exercise"] for s in prog["sessions"] if s["week"] == 12 for e in s["exercises"] if e["kind"] == "test"}
+    assert tests == {"Squat", "Bench Press", "Deadlift", "Overhead Press"}
+    # top sets never ask for more reps than the site's Epley estimate allows at that percent
+    for s in prog["sessions"]:
+        for e in s["exercises"]:
+            if e["percent"] and e["reps"].isdigit():
+                assert int(e["reps"]) <= 30 * (100 / e["percent"] - 1)
+    names = {e["exercise"] for s in prog["sessions"] for e in s["exercises"]}
+    assert names <= set(prog["exercises"])
+
+
+def test_531_leader_anchor(client):
+    prog = client.get("/v1/programs/531-leader-anchor").json()
+    assert prog["days_per_week"] == 4 and len(prog["sessions"]) == 53 * 4
+    by_week = {(s["week"], s["day_index"]): s for s in prog["sessions"]}
+    press = [e for e in by_week[(3, 0)]["exercises"] if e["exercise"] == "Overhead Press"]
+    # 5's PRO week 3: 75/85/95% of an 85% training max, then BBB 5 x 10 at 50%
+    assert [(e["sets"], e["reps"], e["percent"]) for e in press] == [
+        (1, "5", 63.8), (1, "5", 72.2), (1, "5", 80.8), (5, "10", 42.5)]
+    anchor = [e for e in by_week[(10, 3)]["exercises"] if e["exercise"] == "Squat"]
+    assert anchor[2]["reps"] == "1+" and anchor[3]["reps"] == "5" and anchor[3]["sets"] == 5
+    assert by_week[(5, 0)]["phase"] == "Leader 2" and by_week[(9, 0)]["phase"] == "Anchor"
+    tests = {e["exercise"] for s in prog["sessions"] if s["week"] == 12 for e in s["exercises"] if e["kind"] == "test"}
+    assert tests == {"Squat", "Bench Press", "Deadlift", "Overhead Press"}
+    names = {e["exercise"] for s in prog["sessions"] for e in s["exercises"]}
+    assert names <= set(prog["exercises"])
+
+
 def test_unknown_program_404(client):
     assert client.get("/v1/programs/nope").status_code == 404
 

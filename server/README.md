@@ -168,3 +168,15 @@ pip install -r server/requirements.txt
 cd server && uvicorn ruskimaxxing_cloud.main:app --reload   # uses a local SQLite file
 pytest server/tests ../tests/test_sync.py                   # includes full two-device sync tests
 ```
+
+## Program catalog for partner sites (`/v1/programs`)
+
+Read-only, no account needed. Partner sites such as orthodoxbarbellclub.com use it to offer the programs and keep
+their own training logs.
+
+- `GET /v1/programs` lists each program (name, level, days per week, weeks).
+- `GET /v1/programs/{slug}` returns every session of the year: exercises, sets, reps, % of training max and notes,
+  plus each variation's parent lift and typical ratio so a site can estimate its training max.
+
+The JSON lives in `server/programs/` and is generated from `src/ruskimaxxing/program.py`. After changing the program,
+run `python server/deploy/export_programs.py` and commit the result; a test fails if the files are stale.

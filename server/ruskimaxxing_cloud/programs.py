@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Response
 
 PROGRAM_DIR = Path(__file__).resolve().parent.parent / "programs"
-SUMMARY_KEYS = ("slug", "name", "edition", "level", "year", "days_per_week", "weeks", "description")
+SUMMARY_KEYS = ("slug", "kind", "name", "edition", "level", "year", "days_per_week", "weeks", "description")
 
 router = APIRouter(prefix="/v1/programs")
 

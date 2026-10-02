@@ -31,38 +31,68 @@ PROGRAMS = {
         "description": ("The Year 1 program with the snatch and clean & jerk added: the five-lift supertotal plus "
                         "the overhead press, three days a week."),
     },
+    "ruskimaxxing-2day-year1": {
+        "edition": "standard",
+        "builder": "program_designs.two_day",
+        "name": "RuskiMaxxing 2-Day Year 1",
+        "description": ("The Year 1 program in two days a week for men with less time: same cycles, deloads and "
+                        "test weeks, with a rotating variation standing in for the third day."),
+    },
+    "ruskimaxxing-4day-conjugate-year1": {
+        "edition": "standard",
+        "builder": "program_designs.four_day_conjugate",
+        "name": "RuskiMaxxing 4-Day Conjugate Year 1",
+        "description": ("Westside-style upper/lower: max-effort and dynamic-effort days for the lower and upper body, "
+                        "four days a week, on the same 12-week test calendar as Year 1."),
+    },
+    "strongman-conditioning": {
+        "edition": "standard",
+        "builder": "program_designs.strongman",
+        "level": "All levels",
+        "name": "Strongman Conditioning",
+        "description": ("An add-on for any program: two finishers a week of sled pushes and drags, car pushes and "
+                        "pulls, farmer's carries and atlas stones. Skipped in taper and test weeks."),
+    },
 }
 
 # Runs inside a child interpreter so each edition imports program.py fresh with its own RUSKIMAXXING_EDITION.
 _CHILD = r"""
-import json, sys
+import importlib, json, os, sys
 from ruskimaxxing import program
 from ruskimaxxing.exercises import CATALOG, MAIN
+builder = os.environ.get("RM_BUILDER")
+mod = importlib.import_module(builder) if builder else None
+built = mod.build() if mod else program.build_program()
+kind = getattr(mod, "KIND", "program")
 sessions = [
     {"week": s.week, "cycle": s.cycle, "phase": s.phase, "day_index": s.day_index, "day": s.day,
      "exercises": [{"exercise": p.exercise, "sets": p.sets, "reps": p.reps, "percent": p.percent,
                     "note": p.note, "kind": p.kind} for p in s.exercises]}
-    for s in program.build_program()
+    for s in built
 ]
 exercises = {e.name: {"category": e.category, "parent": e.parent, "ratio": e.ratio} for e in CATALOG.values()}
-json.dump({"main_lifts": list(MAIN), "exercises": exercises, "sessions": sessions,
-           "weeks": program.WEEKS, "days_per_week": len(program.DAYS)}, sys.stdout)
+exercises.update(getattr(mod, "EXTRA_EXERCISES", {}))
+json.dump({"kind": kind, "main_lifts": [] if kind == "addon" else list(MAIN), "exercises": exercises,
+           "sessions": sessions, "weeks": program.WEEKS,
+           "days_per_week": getattr(mod, "DAYS_PER_WEEK", len(program.DAYS))}, sys.stdout)
 """
 
 
 def export(slug: str, meta: dict) -> dict:
-    env = {**os.environ, "RUSKIMAXXING_EDITION": meta["edition"], "PYTHONPATH": str(ROOT / "src")}
+    env = {**os.environ, "RUSKIMAXXING_EDITION": meta["edition"], "RM_BUILDER": meta.get("builder", ""),
+           "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT / "server")])}
     raw = subprocess.run([sys.executable, "-c", _CHILD], env=env, check=True, capture_output=True, text=True).stdout
     data = json.loads(raw)
     return {
         "slug": slug,
+        "kind": data["kind"],  # "program", or "addon": finishers that ride on top of a program
         "name": meta["name"],
         "edition": meta["edition"],
-        "level": "Beginner",
+        "level": meta.get("level", "Beginner"),
         "year": 1,
         "days_per_week": data["days_per_week"],
         "weeks": data["weeks"],
-        "baseline_week": True,  # week 0 is an optional baseline test
+        "baseline_week": True,  # week 0 is an optional baseline test (an intro week for add-ons)
         "description": meta["description"],
         "percent_of": "training max",  # every percent is of that exercise's own training max
         "rounding": "nearest plate increment: round(tm * percent / 100 / increment) * increment",

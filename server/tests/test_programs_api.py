@@ -39,6 +39,42 @@ def test_program_detail(client):
     assert "Snatch" in st["main_lifts"] and "Snatch" not in prog["main_lifts"]
 
 
+def test_two_day_program(client):
+    prog = client.get("/v1/programs/ruskimaxxing-2day-year1").json()
+    assert prog["kind"] == "program" and prog["days_per_week"] == 2
+    assert len(prog["sessions"]) == 53 * 2
+    tests = {e["exercise"] for s in prog["sessions"] if s["week"] == 12 for e in s["exercises"] if e["kind"] == "test"
+             and e["reps"] == "Max"}
+    assert tests == {"Squat", "Bench Press", "Deadlift", "Overhead Press"}
+
+
+def test_four_day_conjugate(client):
+    prog = client.get("/v1/programs/ruskimaxxing-4day-conjugate-year1").json()
+    assert prog["days_per_week"] == 4 and len(prog["sessions"]) == 53 * 4
+    week1 = {s["day_index"]: s for s in prog["sessions"] if s["week"] == 1}
+    me = [e for e in week1[0]["exercises"] if e["kind"] == "variation"][0]
+    assert me["reps"] == "1-3RM" and me["percent"] is None
+    speed_bench = [e for e in week1[3]["exercises"] if e["exercise"] == "Bench Press"][0]
+    assert (speed_bench["sets"], speed_bench["reps"], speed_bench["percent"]) == (9, "3", 55.0)
+    # max-effort variations rotate every 3-week block
+    me5 = [e for s in prog["sessions"] if s["week"] == 5 and s["day_index"] == 1 for e in s["exercises"]
+           if e["kind"] == "variation"][0]
+    assert me5["exercise"] != [e for e in week1[1]["exercises"] if e["kind"] == "variation"][0]["exercise"]
+    names = {e["exercise"] for s in prog["sessions"] for e in s["exercises"]}
+    assert names <= set(prog["exercises"])
+
+
+def test_strongman_addon(client):
+    prog = client.get("/v1/programs/strongman-conditioning").json()
+    assert prog["kind"] == "addon" and prog["main_lifts"] == []
+    weeks = {s["week"] for s in prog["sessions"]}
+    assert 11 not in weeks and 12 not in weeks  # off for taper and test weeks
+    names = {e["exercise"] for s in prog["sessions"] for e in s["exercises"]}
+    assert {"Sled Push", "Sled Drag", "Car Push", "Car Pull", "Atlas Stone to Lap", "Atlas Stone Load"} <= names
+    assert all(e["percent"] is None for s in prog["sessions"] for e in s["exercises"])
+    assert names <= set(prog["exercises"])
+
+
 def test_unknown_program_404(client):
     assert client.get("/v1/programs/nope").status_code == 404
 

@@ -1,0 +1,2544 @@
+{
+ "slug": "strongman-conditioning",
+ "kind": "addon",
+ "name": "Strongman Conditioning",
+ "edition": "standard",
+ "level": "All levels",
+ "year": 1,
+ "days_per_week": 2,
+ "weeks": 52,
+ "baseline_week": true,
+ "description": "An add-on for any program: two finishers a week of sled pushes and drags, car pushes and pulls, farmer's carries and atlas stones. Skipped in taper and test weeks.",
+ "percent_of": "training max",
+ "rounding": "nearest plate increment: round(tm * percent / 100 / increment) * increment",
+ "main_lifts": [],
+ "exercises": {
+  "Squat": {
+   "category": "main",
+   "parent": null,
+   "ratio": null
+  },
+  "Bench Press": {
+   "category": "main",
+   "parent": null,
+   "ratio": null
+  },
+  "Deadlift": {
+   "category": "main",
+   "parent": null,
+   "ratio": null
+  },
+  "Overhead Press": {
+   "category": "main",
+   "parent": null,
+   "ratio": null
+  },
+  "Box Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.9
+  },
+  "Pause Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.85
+  },
+  "Front Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.8
+  },
+  "Safety Bar Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.9
+  },
+  "Pin Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.85
+  },
+  "Tempo Squat": {
+   "category": "variation",
+   "parent": "Squat",
+   "ratio": 0.8
+  },
+  "Close-Grip Bench Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 0.92
+  },
+  "1-Board Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 1.03
+  },
+  "2-Board Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 1.06
+  },
+  "3-Board Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 1.1
+  },
+  "Pause Bench Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 0.95
+  },
+  "Floor Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 0.95
+  },
+  "Pin Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 1.0
+  },
+  "Spoto Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 0.93
+  },
+  "Incline Bench Press": {
+   "category": "variation",
+   "parent": "Bench Press",
+   "ratio": 0.8
+  },
+  "Romanian Deadlift": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 0.7
+  },
+  "Deficit Deadlift": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 0.9
+  },
+  "Paused Deadlift": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 0.85
+  },
+  "Block Pull": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 1.05
+  },
+  "Rack Pull": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 1.1
+  },
+  "Sumo Deadlift": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 1.0
+  },
+  "Snatch-Grip Deadlift": {
+   "category": "variation",
+   "parent": "Deadlift",
+   "ratio": 0.8
+  },
+  "Push Press": {
+   "category": "variation",
+   "parent": "Overhead Press",
+   "ratio": 1.2
+  },
+  "Seated Overhead Press": {
+   "category": "variation",
+   "parent": "Overhead Press",
+   "ratio": 0.9
+  },
+  "Z Press": {
+   "category": "variation",
+   "parent": "Overhead Press",
+   "ratio": 0.8
+  },
+  "Behind-the-Neck Press": {
+   "category": "variation",
+   "parent": "Overhead Press",
+   "ratio": 0.85
+  },
+  "Barbell Row": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Face Pull": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Dumbbell Curl": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Chin-up": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Lat Pulldown": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Back Extension": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Plank": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Incline Dumbbell Press": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "One-Arm Dumbbell Row": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Triceps Pushdown": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Walking Lunge": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Leg Press": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Hanging Leg Raise": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Dip": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Hammer Curl": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Lateral Raise": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Reverse Hyper": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Good Morning": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Glute-Ham Raise": {
+   "category": "accessory",
+   "parent": null,
+   "ratio": null
+  },
+  "Box Jump": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Broad Jump": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Vertical Jump": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Depth Jump": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Hurdle Hop": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Lateral Bound": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Plyo Push-up": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Seated Box Jump": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Med Ball Chest Pass": {
+   "category": "plyo",
+   "parent": null,
+   "ratio": null
+  },
+  "Sled Push": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Sled Drag": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Car Push": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Car Pull": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Farmer's Carry": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Atlas Stone to Lap": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  },
+  "Atlas Stone Load": {
+   "category": "strongman",
+   "parent": null,
+   "ratio": null
+  }
+ },
+ "sessions": [
+  {
+   "week": 0,
+   "cycle": 0,
+   "phase": "Intro",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 0,
+   "cycle": 0,
+   "phase": "Intro",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 1,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 1,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 2,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 2,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 3,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 3,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 5,
+     "reps": "2",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 4,
+   "cycle": 1,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 4,
+   "cycle": 1,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 5,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 5,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 6,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 6,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 7,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 7,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 8,
+   "cycle": 1,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 8,
+   "cycle": 1,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 9,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 9,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 10,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 10,
+   "cycle": 1,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 13,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 13,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 14,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 14,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 15,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 15,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 5,
+     "reps": "2",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 16,
+   "cycle": 2,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 16,
+   "cycle": 2,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 17,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 17,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 18,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 18,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 19,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 19,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 20,
+   "cycle": 2,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 20,
+   "cycle": 2,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 21,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 21,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 22,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 22,
+   "cycle": 2,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 25,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 25,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 26,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 26,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 27,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 27,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 5,
+     "reps": "2",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 28,
+   "cycle": 3,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 28,
+   "cycle": 3,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 29,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 29,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 30,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 30,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 31,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 31,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 32,
+   "cycle": 3,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 32,
+   "cycle": 3,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 33,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 33,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 34,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 34,
+   "cycle": 3,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 37,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 37,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 38,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 38,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 39,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 39,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 5,
+     "reps": "2",
+     "percent": null,
+     "note": "Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 40,
+   "cycle": 4,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 40,
+   "cycle": 4,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 41,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 41,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 42,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 42,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 43,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Push",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only. A driver sits at the wheel, steers, and is ready to brake. Hands on the frame, body low, drive with the legs",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 43,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 7,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Car Pull",
+     "sets": 4,
+     "reps": "50 yd",
+     "percent": null,
+     "note": "Flat, empty lot only, with a driver at the wheel ready to brake. Harness or rope on the tow point, lean forward and take short, powerful steps",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 44,
+   "cycle": 4,
+   "phase": "Deload",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 44,
+   "cycle": 4,
+   "phase": "Deload",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 45,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 3,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 45,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 5,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 46,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 4,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 46,
+   "cycle": 4,
+   "phase": "Build",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 6,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone Load",
+     "sets": 4,
+     "reps": "3",
+     "percent": null,
+     "note": "Pick, lap, then extend the hips hard and roll the stone onto the platform or over the bar",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 49,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 49,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 50,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 50,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 51,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 0,
+   "day": "Finisher A - Push",
+   "exercises": [
+    {
+     "exercise": "Sled Push",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Load it so each trip is 15-20 seconds of hard driving. Walk back to recover",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Farmer's Carry",
+     "sets": 2,
+     "reps": "40 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Heavy handles or dumbbells, stand tall, quick steps. Set them down under control",
+     "kind": "strongman"
+    }
+   ]
+  },
+  {
+   "week": 51,
+   "cycle": 5,
+   "phase": "Easy",
+   "day_index": 1,
+   "day": "Finisher B - Pull and Stones",
+   "exercises": [
+    {
+     "exercise": "Sled Drag",
+     "sets": 4,
+     "reps": "20 yd",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Face the sled and walk backward with short, fast steps, then turn and drag it forward",
+     "kind": "strongman"
+    },
+    {
+     "exercise": "Atlas Stone to Lap",
+     "sets": 3,
+     "reps": "3",
+     "percent": null,
+     "note": "Easy - learn the movement, no grinding. Pick the stone and lap it, stand, set it down. Learn the lap before going heavy. Tacky or a sleeve on the forearms",
+     "kind": "strongman"
+    }
+   ]
+  }
+ ]
+}

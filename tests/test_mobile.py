@@ -121,8 +121,37 @@ def test_cloud_section_is_just_a_link(app, monkeypatch):
     s.set("cloud_token", "t"), s.set("cloud_email", "me@example.com")
     app.refresh_cloud()
     assert "Back up now" in texts(app.cloud_box) and "me@example.com" in app.cloud_status.text
-    app._cloud_delete(None)
-    assert opened[-1] == "https://api.ruskimaxxing.com/account/delete"
+    app._cloud_delete(None)                               # in-app deletion: asks for the password
+    assert "Delete forever" in texts(app.cloud_box)
+    app._cloud_delete_web(None)                           # fallback: the website's delete page
+    assert opened[-1] == "https://api.ruskimaxxing.com/account/delete?app=1"
+    deleted = []
+
+    def fake_delete(password):
+        deleted.append(password)
+        s.set("cloud_token", ""), s.set("cloud_email", "")
+    monkeypatch.setattr(app.cloud, "delete_account", fake_delete)
+    monkeypatch.setattr(app, "info", lambda *a: asyncio.sleep(0))
+    app.delete_password.value = "hunter22"
+    asyncio.run(app._cloud_delete_confirm(None))
+    assert deleted == ["hunter22"] and not app.cloud.logged_in
+    assert texts(app.cloud_box) == ["Create account or log in at ruskimaxxing.com"]
+
+
+def test_privacy_and_terms_links(app, monkeypatch):
+    import ruskimaxxing_mobile.app as mod
+    opened = []
+    monkeypatch.setattr(mod, "open_url", opened.append)
+    def find(box, text):
+        for w in box.children:
+            if getattr(w, "text", None) == text:
+                return w
+            if w.children and (hit := find(w, text)):
+                return hit
+    setup = app.tabs.content[4].content
+    find(setup.content, "Privacy policy").on_press()
+    find(setup.content, "Terms").on_press()
+    assert opened == ["https://api.ruskimaxxing.com/privacy?app=1", "https://api.ruskimaxxing.com/terms?app=1"]
 
 def test_update_banner(app):
     from ruskimaxxing.updates import Update

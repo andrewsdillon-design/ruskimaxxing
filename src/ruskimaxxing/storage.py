@@ -52,7 +52,8 @@ class Store:
     def __init__(self, path: str | Path = DEFAULT_PATH):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path)
+        # the apps run cloud sync in a worker thread (one call at a time), so allow use off the main thread
+        self.db = sqlite3.connect(self.path, check_same_thread=False)
         self.db.executescript(SCHEMA)
         self._migrate()
 

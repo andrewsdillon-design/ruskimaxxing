@@ -71,7 +71,8 @@ def test_forgot_and_delete_on_website(client):
 
 def test_app_sign_in_with_browser(client):
     start = client.post("/api/link/start", json={"edition": "supertotal", "phone": True}).json()
-    code, device = start["url"].split("code=")[1], start["device_code"]
+    assert start["url"].endswith("&app=1")      # phone apps' pages show nothing to buy (see test_billing)
+    code, device = start["url"].split("code=")[1].split("&")[0], start["device_code"]
     assert start["code"] == f"{code[:4]}-{code[4:]}"
     assert client.post("/api/link/poll", json={"device_code": device}).status_code == 202   # not yet
     # the browser: not logged in -> sign-in page that comes back to the link

@@ -574,6 +574,8 @@ class RuskiMaxxing(toga.App):
             label("Back up to the cloud so you can log in on a new phone and get everything back.", 10),
             self.cloud_status,
             self.cloud_box,
+            row(button("Privacy policy", lambda w: open_url(self.cloud.account_page("/privacy?app=1")), flex=1),
+                button("Terms", lambda w: open_url(self.cloud.account_page("/terms?app=1")), flex=1), gap=6),
             section("App updates"),
             row(self.update_status, button("Check for updates", self._check_updates_now, width=150), gap=6),
             section("Prilepin's chart"),
@@ -668,7 +670,7 @@ class RuskiMaxxing(toga.App):
         if self.cloud.logged_in:
             self.cloud_box.add(row(button("Back up now", self._cloud_sync, flex=1),
                                    button("Log out", self._cloud_logout, flex=1), gap=6))
-            self.cloud_box.add(row(button("Delete account (website)", self._cloud_delete, flex=1)))
+            self.cloud_box.add(row(button("Delete account", self._cloud_delete, flex=1)))
         else:
             # the only thing in the app: a link to the website (accounts are made and managed there)
             self.cloud_box.add(row(button("Create account or log in at ruskimaxxing.com", self._cloud_sign_in, flex=1)))
@@ -726,7 +728,25 @@ class RuskiMaxxing(toga.App):
         await self._cloud(self.cloud.logout, "Logged out. Your data stays on this phone.")
 
     def _cloud_delete(self, widget):
-        open_url(self.cloud.account_page("/account/delete"))
+        """Delete the cloud account right here in the app (App Store rule); the website is the fallback."""
+        self.delete_password = toga.PasswordInput(placeholder="Your password", style=Pack(flex=1))
+        self.cloud_box.clear()
+        self.cloud_box.add(label(wrap("Deletes your account and all cloud backups for good. "
+                                      "Workouts saved on this phone stay.", 10), 10, True, CRIMSON))
+        self.cloud_box.add(row(self.delete_password))
+        self.cloud_box.add(row(button("Delete forever", self._cloud_delete_confirm, flex=1),
+                               button("Cancel", lambda w: self.refresh_cloud(), flex=1), gap=6))
+        self.cloud_box.add(row(button("Forgot password? Delete on the website", self._cloud_delete_web, flex=1)))
+
+    async def _cloud_delete_confirm(self, widget):
+        password = self.delete_password.value
+        if password:
+            await self._cloud(lambda: self.cloud.delete_account(password),
+                              "Account and cloud backups deleted. Your data stays on this phone.")
+
+    def _cloud_delete_web(self, widget):
+        # ?app=1: the website shows no prices or purchase links to people coming from the app (App Store rules)
+        open_url(self.cloud.account_page("/account/delete?app=1"))
 
     def refresh_setup(self):
         self.refresh_cloud()

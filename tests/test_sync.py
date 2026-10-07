@@ -135,7 +135,7 @@ def test_sign_in_with_browser(tmp_path, transport):
     assert phone.pending_code == link["code"] and "website" in phone.status()
     assert phone.poll_sign_in() is False                       # still waiting
     browser = transport.client
-    code = link["url"].split("code=")[1]
+    code = link["url"].split("code=")[1].split("&")[0]  # phone links also carry &app=1
     r = browser.post("/account/register", data={"email": "web@example.com", "password": "clean-jerk-1",
                                                 "password2": "clean-jerk-1", "next": f"/link?code={code}"})
     assert "Connect this app" in r.text                         # followed the redirect back to the link page

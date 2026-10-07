@@ -25,7 +25,7 @@ well-established training knowledge, and it should be free for everyone.
 | macOS app | `RuskiMaxxing-macOS.zip` on the [Releases](../../releases) page |
 | Linux app | `RuskiMaxxing-Linux.tar.gz` on the [Releases](../../releases) page |
 | Android app | `RuskiMaxxing-Android.apk` on the [Releases](../../releases) page |
-| iPhone app | Built and tested each release; needs an Apple Developer account to install (see Phone apps) |
+| iPhone app | TestFlight / App Store, built and uploaded from GitHub Actions (see Phone apps) |
 
 ## Phone apps (Android / iPhone)
 
@@ -42,10 +42,14 @@ The same program, logging and PR tracking as the desktop app, built with BeeWare
   on your phone. Android will ask you to allow "install unknown apps" for your browser or files app.
   - To publish on **Google Play** later, you'll need a Play developer account ($25 one-time) and a signing key.
     Briefcase builds the store bundle with `briefcase package android` (AAB).
-- **iPhone**: Apple only lets signed apps onto real iPhones, so this needs an **Apple Developer Program**
-  membership ($99/year) and a Mac or CI signing setup. After that, `briefcase package iOS` produces a build
-  for TestFlight / the App Store. Until then, every build compiles the iPhone app for the iOS Simulator,
-  to prove it builds.
+- **iPhone**: shipped through **TestFlight / the App Store**, built and signed by GitHub Actions on a Mac
+  runner (`.github/workflows/testflight.yml`), so no Mac is needed. On Windows, double-click
+  **`SHIP_TO_TESTFLIGHT.bat`**. It sets everything up the first time (Apple API key, App Store Connect app),
+  then builds, signs and uploads. The build shows up in TestFlight 10–30 minutes later. Details, the App Review
+  checklist and the privacy answers are in [`docs/APP_STORE.md`](docs/APP_STORE.md).
+  - iOS bundle ID: `io.github.andrewsdillondesign.ruskimaxxing-mobile` (the Android package ID keeps its `_`).
+  - Without the Apple secrets, and on pull requests, the workflow still builds and checks an unsigned archive.
+  - Every build also compiles the app for the iOS Simulator (the `ios` job in `build.yml`).
 - **Your data stays on your phone** (a local database). Optional **cloud backup** (Setup → Cloud backup)
   lets people log in on a new phone and get everything back. It runs on your own server; see
   [`server/README.md`](server/README.md).

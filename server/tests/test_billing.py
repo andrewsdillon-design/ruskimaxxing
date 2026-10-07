@@ -178,3 +178,41 @@ def test_setup_stripe_script_creates_then_reuses(tmp_path):
     mod.write_env(envfile, env)
     assert envfile.read_text() == ("DATABASE_URL=x\nSTRIPE_PRICE_ID=price_1\nSTRIPE_WEBHOOK_SECRET=whsec_1\n"
                                    "STRIPE_PORTAL_CONFIG=bpc_1\n")
+
+
+def test_pages_opened_from_the_phone_app_sell_nothing(client):
+    """App Store guideline 3.1.1: what the phone app opens must not lead to a purchase."""
+    register(client)
+    client.post("/account/login", data={"email": "lifter@example.com", "password": "squat-heavy"})
+    assert "Subscribe - $20/year" in client.get("/account").text          # the normal website sells
+    privacy = client.get("/privacy?app=1")
+    assert "rmx_app=1" in privacy.headers["set-cookie"]
+    assert '<a href="/account">Account</a>' not in privacy.text           # no footer link to the account page
+    page = client.get("/account").text                                  # the cookie keeps app mode on
+    assert "Signed in as lifter@example.com" in page and "Delete account" in page
+    assert "Subscribe" not in page and "$20" not in page and "/account/program" not in page
+    assert client.get("/account/program", follow_redirects=False).headers["location"] == "/account"
+    assert client.post("/account/subscribe", data={"agree": "yes"},
+                       follow_redirects=False).headers["location"] == "/account"
+    assert client.post("/account/program/2/checkout", data={"consent": "yes", "terms": "yes"},
+                       follow_redirects=False).headers["location"] == "/account/program"
+    assert "Subscribe - $20/year" in client.get("/account?app=0").text   # ?app=0 (or 30 minutes) ends it
+    assert '<a href="/account">Account</a>' in client.get("/terms").text
+
+
+def test_deleting_the_account_cancels_the_plan(client, monkeypatch):
+    h, _ = register(client)
+    webhook(client, {"id": "e", "object": "event", "type": "checkout.session.completed",
+                     "data": {"object": {"client_reference_id": "1", "customer": "cus_1"}}})
+    webhook(client, subscription(1))
+
+    def stripe_down(user):
+        raise RuntimeError("stripe is down")
+    monkeypatch.setattr(m, "stripe_cancel_subscriptions", stripe_down)
+    r = client.request("DELETE", "/api/account", json={"password": "squat-heavy"}, headers=h)
+    assert r.status_code == 502                                            # not deleted while still billed
+    assert client.get("/api/me", headers=h).status_code == 200
+    cancelled = []
+    monkeypatch.setattr(m, "stripe_cancel_subscriptions", lambda user: cancelled.append(user.stripe_customer))
+    assert client.request("DELETE", "/api/account", json={"password": "squat-heavy"}, headers=h).status_code == 200
+    assert cancelled == ["cus_1"]

@@ -1,5 +1,6 @@
 """One-click server deploy: tools/deploy_server.py and server/deploy/enable_github_deploy.sh."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,8 @@ import deploy_server  # noqa: E402
 
 ENABLE = ROOT / "server" / "deploy" / "enable_github_deploy.sh"
 PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOb8x+/2kP0ZcZ3m6o1sV0fGq2uS3r0YH0j4m9w8uT5d ruskimaxxing-github-deploy"
-bash = pytest.mark.skipif(not shutil.which("bash"), reason="needs bash")
+# server scripts: Linux only. (On Windows, "bash" is usually the WSL launcher, often with no Linux installed.)
+bash = pytest.mark.skipif(os.name == "nt" or not shutil.which("bash"), reason="needs a real bash (Linux/macOS)")
 
 
 @bash

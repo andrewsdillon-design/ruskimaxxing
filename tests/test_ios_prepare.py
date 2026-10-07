@@ -111,3 +111,10 @@ def test_rejects_bad_build_number(xcode):
 
 def test_real_app_icon_has_no_alpha():
     assert not ios_prepare.png_has_alpha(ROOT / "src" / "ruskimaxxing_mobile" / "resources" / "icon-1024.png")
+
+
+def test_windows_script_agrees_on_bundle_id():
+    spec = importlib.util.spec_from_file_location("ship_ios", ROOT / "tools" / "ship_ios.py")
+    ship_ios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ship_ios)
+    assert ship_ios.bundle_id(ROOT) == BUNDLE_ID

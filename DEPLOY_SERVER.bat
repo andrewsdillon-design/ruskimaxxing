@@ -4,7 +4,7 @@ title Deploy RuskiMaxxing Cloud
 rem Double-click to deploy the latest RuskiMaxxing Cloud server (api.ruskimaxxing.com) via GitHub Actions.
 rem Installs Git and Python if needed, then runs tools\deploy_server.py (which does the rest).
 
-set "PATH=%ProgramFiles%\Git\cmd;%ProgramFiles%\GitHub CLI;%PATH%"
+set "PATH=%ProgramFiles%\Git\cmd;%ProgramFiles%\GitHub CLI;%LOCALAPPDATA%\Microsoft\WindowsApps;%PATH%"
 set "PYUSER=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 
 where winget >nul 2>nul

@@ -4,7 +4,7 @@ title Ship RuskiMaxxing to TestFlight
 rem Double-click to build the iPhone app on GitHub's Mac and upload it to TestFlight.
 rem Installs Git and Python if needed, then runs tools\ship_ios.py (which does the rest).
 
-set "PATH=%ProgramFiles%\Git\cmd;%ProgramFiles%\GitHub CLI;%PATH%"
+set "PATH=%ProgramFiles%\Git\cmd;%ProgramFiles%\GitHub CLI;%LOCALAPPDATA%\Microsoft\WindowsApps;%PATH%"
 set "PYUSER=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 
 where winget >nul 2>nul

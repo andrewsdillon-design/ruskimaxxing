@@ -22,6 +22,7 @@ REPO_DIR = Path(os.environ.get("USERPROFILE") or Path.home()) / "ruskimaxxing"
 WIN_DIRS = {  # where winget puts these, so they work in this window right after installing
     "git": [r"%ProgramFiles%\Git\cmd"],
     "gh": [r"%ProgramFiles%\GitHub CLI", r"%LOCALAPPDATA%\Programs\GitHub CLI"],
+    "winget": [r"%LOCALAPPDATA%\Microsoft\WindowsApps"],  # sometimes installed but missing from PATH
     "ssh": [r"%SystemRoot%\System32\OpenSSH"],
     "ssh-keygen": [r"%SystemRoot%\System32\OpenSSH"],
 }
@@ -80,7 +81,7 @@ def find_tool(name: str) -> bool:
 def ensure_tool(name: str, winget_id: str) -> None:
     if find_tool(name):
         return
-    if os.name != "nt" or not shutil.which("winget"):
+    if os.name != "nt" or not find_tool("winget"):
         sys.exit(f"Please install {name} first (https://cli.github.com for gh, https://git-scm.com for git).")
     say(f"Installing {name} with winget...")
     run(["winget", "install", "-e", "--id", winget_id, "--accept-source-agreements",

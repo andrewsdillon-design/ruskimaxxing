@@ -27,9 +27,11 @@ GitHub Actions on a Mac runner, so no Mac is needed. From Windows, double-click
    - `tools/ios_prepare.py`: sets the build number and version, sets `ITSAppUsesNonExemptEncryption = false`,
      checks the `ruskimaxxing://` URL scheme, adds `packaging/ios/PrivacyInfo.xcprivacy`, checks that the
      1024 px icon has no alpha channel, and prints the bundle ID.
-   - `xcodebuild archive` with automatic signing (the API key lets Xcode create certificates and profiles).
+   - `xcodebuild archive`, unsigned. An automatically signed archive needs a development profile, and Apple
+     only makes one once an iPhone is registered to the team ("Your team has no devices").
    - Checks the archive's contents.
-   - `xcodebuild -exportArchive` with `packaging/ios/ExportOptions.plist` (app-store-connect, upload). If that
+   - `xcodebuild -exportArchive` with `packaging/ios/ExportOptions.plist` (app-store-connect, upload). This step
+     signs for the App Store: the API key lets Xcode create the distribution certificate and App Store profile. If that
      fails, it falls back to exporting an `.ipa` and uploading it with `xcrun altool`.
 
 **Without the secrets, and always on pull requests,** the workflow builds and checks an **unsigned** archive,

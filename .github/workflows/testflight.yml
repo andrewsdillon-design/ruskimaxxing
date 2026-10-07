@@ -1,0 +1,191 @@
+name: TestFlight (iPhone)
+
+# Builds the iPhone app on a Mac runner, signs it and uploads it to App Store Connect / TestFlight.
+# The easy way to run it: double-click SHIP_TO_TESTFLIGHT.bat on Windows (see docs/APP_STORE.md).
+# Or: Actions tab -> TestFlight (iPhone) -> Run workflow. Pushing a v* tag runs it too.
+#
+# Needs three repo secrets (the .bat sets them): ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8
+# (an App Store Connect API key with the Admin role). Without them - and always on pull
+# requests - it builds an UNSIGNED archive to prove everything up to signing works, then stops.
+
+on:
+  workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: "Only check the Apple setup (bundle ID + app record), don't build"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/testflight.yml
+      - tools/ios_prepare.py
+      - tools/asc_api.py
+      - packaging/ios/**
+      - pyproject.toml
+      - src/ruskimaxxing_mobile/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: false  # never cut off an upload halfway
+
+env:
+  TEAM_ID: GA9A5J9A44  # Apple Developer team (Dillon REA Andrews)
+  APP_NAME: RuskiMaxxing
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.mode.outputs.signed }}
+      bundle_id: ${{ steps.bundle.outputs.bundle_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bundle ID
+        id: bundle
+        run: |
+          bid=$(python tools/ios_prepare.py bundle-id)
+          echo "iOS bundle ID: $bid"
+          echo "bundle_id=$bid" >> "$GITHUB_OUTPUT"
+      - name: Signed or unsigned?
+        id: mode
+        env:
+          HAS_SECRETS: ${{ secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8 != '' }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "Pull request: building an unsigned archive only (nothing is uploaded from PRs)."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_SECRETS" != "true" ]; then
+            echo "::warning::App Store Connect secrets (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8) aren't set, so this run builds an UNSIGNED archive and stops before signing. Run SHIP_TO_TESTFLIGHT.bat to set them up."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Register bundle ID and check the App Store Connect app exists
+        if: steps.mode.outputs.signed == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          pip install -q pyjwt cryptography
+          export ASC_KEY_PATH="$RUNNER_TEMP/asc_key.p8"
+          (umask 077; printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH")
+          trap 'rm -f "$ASC_KEY_PATH"' EXIT
+          python tools/asc_api.py preflight "${{ steps.bundle.outputs.bundle_id }}" "$APP_NAME"
+
+  ios:
+    needs: preflight
+    if: ${{ !inputs.preflight_only }}
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      SIGNED: ${{ needs.preflight.outputs.signed }}
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}  # always goes up
+      ARCHIVE: ${{ github.workspace }}/dist/RuskiMaxxing.xcarchive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Use the newest stable Xcode (App Store uploads need a recent SDK)
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
+      - run: pip install briefcase==0.4.5
+      - run: briefcase create iOS --no-input
+      - name: Prepare Xcode project (build number, privacy manifest, icon, bundle ID)
+        id: prep
+        run: python tools/ios_prepare.py project --build-number "$BUILD_NUMBER"
+
+      - name: Install App Store Connect API key
+        if: env.SIGNED == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          # altool and xcodebuild both find the key here; removed again in the last step
+          mkdir -p ~/.appstoreconnect/private_keys
+          (umask 077; printf '%s\n' "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8)
+
+      - name: Archive (unsigned - no App Store Connect secrets, or a pull request)
+        if: env.SIGNED != 'true'
+        run: |
+          xcodebuild archive -project "${{ steps.prep.outputs.project }}" -scheme "${{ steps.prep.outputs.scheme }}" \
+            -configuration Release -destination "generic/platform=iOS" -archivePath "$ARCHIVE" \
+            TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet
+
+      - name: Archive (signed)
+        if: env.SIGNED == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive -project "${{ steps.prep.outputs.project }}" -scheme "${{ steps.prep.outputs.scheme }}" \
+            -configuration Release -destination "generic/platform=iOS" -archivePath "$ARCHIVE" \
+            TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" -quiet
+
+      - name: Check the archive
+        run: python tools/ios_prepare.py check-archive "$ARCHIVE" --build-number "$BUILD_NUMBER"
+
+      - name: Sign and upload to App Store Connect
+        id: upload
+        if: env.SIGNED == 'true'
+        continue-on-error: true  # falls back to altool below
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath dist/upload \
+            -exportOptionsPlist packaging/ios/ExportOptions.plist -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Fallback - export the .ipa and upload with altool
+        if: env.SIGNED == 'true' && steps.upload.outcome == 'failure'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          plutil -replace destination -string export -o dist/ExportIPA.plist packaging/ios/ExportOptions.plist
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath dist/ipa \
+            -exportOptionsPlist dist/ExportIPA.plist -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          xcrun altool --upload-app --type ios --file dist/ipa/*.ipa --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Summary
+        run: |
+          if [ "$SIGNED" = "true" ]; then
+            msg="Uploaded ${{ needs.preflight.outputs.bundle_id }} ${{ steps.prep.outputs.version }} (build $BUILD_NUMBER). It shows up in App Store Connect -> TestFlight in about 10-30 minutes."
+          else
+            msg="UNSIGNED build of ${{ needs.preflight.outputs.bundle_id }} ${{ steps.prep.outputs.version }} (build $BUILD_NUMBER) archived and checked. Stopped before signing: nothing was uploaded. Set the App Store Connect secrets (run SHIP_TO_TESTFLIGHT.bat) to upload to TestFlight."
+            echo "::notice::$msg"
+          fi
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Zip the unsigned archive
+        if: env.SIGNED != 'true'
+        run: ditto -c -k --keepParent "$ARCHIVE" dist/RuskiMaxxing-iOS-unsigned.xcarchive.zip
+      - uses: actions/upload-artifact@v4
+        if: env.SIGNED != 'true'
+        with:
+          name: RuskiMaxxing-iOS-unsigned.xcarchive.zip
+          path: dist/RuskiMaxxing-iOS-unsigned.xcarchive.zip
+          retention-days: 7
+
+      - name: Remove the API key
+        if: always()
+        run: rm -rf ~/.appstoreconnect/private_keys

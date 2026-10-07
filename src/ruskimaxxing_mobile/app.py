@@ -574,8 +574,8 @@ class RuskiMaxxing(toga.App):
             label("Back up to the cloud so you can log in on a new phone and get everything back.", 10),
             self.cloud_status,
             self.cloud_box,
-            row(button("Privacy policy", lambda w: open_url(self.cloud.account_page("/privacy")), flex=1),
-                button("Terms", lambda w: open_url(self.cloud.account_page("/terms")), flex=1), gap=6),
+            row(button("Privacy policy", lambda w: open_url(self.cloud.account_page("/privacy?app=1")), flex=1),
+                button("Terms", lambda w: open_url(self.cloud.account_page("/terms?app=1")), flex=1), gap=6),
             section("App updates"),
             row(self.update_status, button("Check for updates", self._check_updates_now, width=150), gap=6),
             section("Prilepin's chart"),
@@ -745,7 +745,8 @@ class RuskiMaxxing(toga.App):
                               "Account and cloud backups deleted. Your data stays on this phone.")
 
     def _cloud_delete_web(self, widget):
-        open_url(self.cloud.account_page("/account/delete"))
+        # ?app=1: the website shows no prices or purchase links to people coming from the app (App Store rules)
+        open_url(self.cloud.account_page("/account/delete?app=1"))
 
     def refresh_setup(self):
         self.refresh_cloud()

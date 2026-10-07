@@ -96,7 +96,7 @@ the .bat again or push a `v*` tag. After a version has been approved, Apple reje
 - [ ] Price: Free. No in-app purchases.
 - [ ] Make a **reviewer account** on the website with cloud backup turned on (make it complimentary in the admin
       pages) and put it in the review notes.
-- [ ] Before submitting, fix the website footer link (see guideline 3.1.1 below).
+- [ ] Deploy the server from this PR (it has the app-mode fix, see guideline 3.1.1 below) before submitting.
 - [ ] Submit for review.
 
 ---
@@ -106,7 +106,9 @@ the .bat again or push a `v*` tag. After a version has been approved, Apple reje
 ### Account deletion (guideline 5.1.1(v)): done in this PR
 - Setup → Cloud backup → **Delete account** asks for the password and deletes the account and all cloud
   backups in the app (`DELETE /api/account`). If the password is forgotten, a "Delete on the website" button
-  opens `/account/delete`.
+  opens `/account/delete?app=1`.
+- Deleting an account (in the app or on the website) also **cancels any Stripe subscription**, so nobody is
+  charged after deleting. If Stripe can't be reached, nothing is deleted and the person is asked to try again.
 - Setup has **Privacy policy** and **Terms** buttons (`/privacy`, `/terms`). Signing up on the website also links both.
 
 ### Payments (guidelines 3.1.1 and 3.1.3)
@@ -118,14 +120,22 @@ What the iOS app does today:
 - That fits **3.1.3(f)**: a free stand-alone companion to a paid web service (cloud storage), with no purchasing
   in the app and no calls to action to buy outside it.
 
-**Risk: medium-low. One thing to fix before App Review (not needed for TestFlight internal testing):**
-The app opens website pages for sign-in (`/link`), deletion (`/account/delete`) and privacy/terms. Every
-website page has a footer link to **`/account`**, and that page has the Stripe **Subscribe** and program purchase
-buttons. A reviewer can reach a purchase in two taps from the app, which can get a 3.1.1 rejection outside the
-US storefront. (Since May 2025, US-storefront apps may link to web purchases, but other storefronts still
-restrict it.) The smallest fix is on the server: leave out the footer's Account link, and any purchase buttons,
-on pages opened from the app. For example, add `?app=1` to the URLs the phone app opens and have `page()` skip
-the footer when it's set. Or, simplest, limit the first release to the US storefront.
+**Website pages opened from the app: fixed in this PR ("app mode").**
+Before, every website page had a footer link to `/account`, where the Stripe **Subscribe** and program-year
+buttons are, so a reviewer could reach a purchase in two taps from the app. Now:
+- The phone app opens its pages with `?app=1`: sign-in (`/link?...&app=1`, added by the server for phone
+  apps), delete account, privacy and terms. That turns on app mode for 30 minutes in that browser
+  (`rmx_app` cookie). `?app=0` turns it off.
+- In app mode the footer has no Account link. `/account` shows only "Signed in as", Log out and Delete
+  account: no plan status, prices, Subscribe, billing or Program years. `/account/program` redirects
+  to `/account`. The subscribe, billing-portal and program-year checkout endpoints refuse to start a
+  purchase.
+- What's left: the Terms page still *describes* the plan and program-year prices, because it's a legal
+  document and has no buy button. That isn't a call to action, and Apple asks apps to link the terms.
+- Tests: `server/tests/test_billing.py::test_pages_opened_from_the_phone_app_sell_nothing`.
+
+The server change must be deployed to api.ruskimaxxing.com before App Review. Older app builds still work,
+but they open pages without `?app=1`.
 
 **If Years 2–3 come to the phone later:** keep them unlock-only. The app checks the signed-in account (as cloud
 backup does) and shows the content if it's owned. On iOS (`toga.platform.current_platform == "iOS"`), show no

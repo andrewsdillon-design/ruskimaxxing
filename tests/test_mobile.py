@@ -124,7 +124,7 @@ def test_cloud_section_is_just_a_link(app, monkeypatch):
     app._cloud_delete(None)                               # in-app deletion: asks for the password
     assert "Delete forever" in texts(app.cloud_box)
     app._cloud_delete_web(None)                           # fallback: the website's delete page
-    assert opened[-1] == "https://api.ruskimaxxing.com/account/delete"
+    assert opened[-1] == "https://api.ruskimaxxing.com/account/delete?app=1"
     deleted = []
 
     def fake_delete(password):
@@ -151,7 +151,7 @@ def test_privacy_and_terms_links(app, monkeypatch):
     setup = app.tabs.content[4].content
     find(setup.content, "Privacy policy").on_press()
     find(setup.content, "Terms").on_press()
-    assert opened == ["https://api.ruskimaxxing.com/privacy", "https://api.ruskimaxxing.com/terms"]
+    assert opened == ["https://api.ruskimaxxing.com/privacy?app=1", "https://api.ruskimaxxing.com/terms?app=1"]
 
 def test_update_banner(app):
     from ruskimaxxing.updates import Update

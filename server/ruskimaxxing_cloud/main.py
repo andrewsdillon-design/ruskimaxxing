@@ -36,6 +36,7 @@ import secrets
 import smtplib
 import time
 import warnings
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -63,6 +64,11 @@ PLAN_PRICE_PLAIN = "$20"
 PLAN_GRACE = timedelta(days=3)          # renewals can take a day or two to go through
 ACTIVE_STATUSES = ("active", "trialing", "past_due")
 COOKIE = "rmx_session"
+# Pages the phone apps open (sign-in, delete account, privacy, terms) carry ?app=1. For APP_MODE_MINUTES after
+# that, this browser gets "app mode": no prices, purchase buttons or links to them (App Store guideline 3.1.1).
+APP_COOKIE = "rmx_app"
+APP_MODE_MINUTES = 30
+_app_mode: ContextVar[bool] = ContextVar("app_mode", default=False)
 REFUND_DAYS = 30                        # full refund of any charge (first year or renewal) within 30 days
 REMINDER_WINDOW = (30, 45)              # renewal reminder goes out 30-45 days before each yearly renewal
 TERMS_UPDATED = "September 28, 2026"
@@ -658,7 +664,28 @@ def create_user(s: Session, email: str, password: str) -> "User":
     return user
 
 
+def app_mode() -> bool:
+    """True while serving a page opened from (or reached from) a phone app: see APP_COOKIE."""
+    return _app_mode.get()
+
+
+def stripe_cancel_subscriptions(user) -> None:
+    """Cancel every live subscription, so deleting an account also stops future renewals."""
+    import stripe
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+    for sub in stripe.Subscription.list(customer=user.stripe_customer, status="all", limit=10).data:
+        if sub.status not in ("canceled", "incomplete_expired"):
+            stripe.Subscription.cancel(sub.id)
+
+
 def erase_user(s: Session, user: "User") -> None:
+    if billing_on() and user.stripe_customer:
+        try:
+            stripe_cancel_subscriptions(user)
+        except Exception as e:  # never delete the account while it would keep being charged
+            logging.getLogger(__name__).exception("cancelling subscriptions for user %s failed", user.id)
+            raise HTTPException(502, "Couldn't cancel your plan with our payment provider just now, so nothing "
+                                     "was deleted. Please try again in a few minutes.") from e
     for model in (Record, LoginSession, ResetToken, AppLink, AdminSession, ProgramPurchase, ConsentEvent,
                  StreakCheck):
         s.execute(delete(model).where(model.user_id == user.id))
@@ -704,6 +731,22 @@ def create_app(database_url: str | None = None) -> FastAPI:
         with SessionLocal() as s:
             yield s
 
+    @app.middleware("http")
+    async def phone_app_mode(request: Request, call_next):
+        flag = request.query_params.get("app")
+        on = flag == "1" or (flag != "0" and request.cookies.get(APP_COOKIE) == "1")
+        token = _app_mode.set(on)
+        try:
+            response = await call_next(request)
+        finally:
+            _app_mode.reset(token)
+        if flag == "1":
+            response.set_cookie(APP_COOKIE, "1", max_age=APP_MODE_MINUTES * 60, httponly=True, samesite="lax",
+                                secure=public_url(request).startswith("https://"))
+        elif flag == "0":
+            response.delete_cookie(APP_COOKIE)
+        return response
+
     def current_user(authorization: str = Header(default=""), s: Session = Depends(db)) -> User:
         token = authorization.removeprefix("Bearer ").strip()
         row = s.get(LoginSession, digest(token)) if token else None
@@ -742,7 +785,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                       expires=utcnow() + timedelta(minutes=LINK_MINUTES)))
         s.commit()
         return {"device_code": device_code, "code": f"{code[:4]}-{code[4:]}",
-                "url": f"{public_url(request)}/link?code={code}", "interval": 2, "expires_in": LINK_MINUTES * 60}
+                "url": f"{public_url(request)}/link?code={code}" + ("&app=1" if body.phone else ""), "interval": 2, "expires_in": LINK_MINUTES * 60}
 
     @app.post("/api/link/poll")
     def link_poll(body: LinkPoll, response: Response, s: Session = Depends(db)):
@@ -896,6 +939,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
             return page("Log in", login_form(next))
         if safe_next(next) != "/account":
             return RedirectResponse(safe_next(next), status_code=303)
+        if app_mode():  # opened from a phone app: account basics only, nothing to buy
+            return page("Your RuskiMaxxing account", f"""
+                <p>Signed in as {html.escape(user.email)}</p>
+                <form method="post" action="/account/logout"><p><button>Log out</button></p></form>
+                <p><a href="/account/delete">Delete account</a></p>""")
         info = plan_info(user)
         if info["complimentary"] or not info["billing"]:
             status = "<p><b>Cloud backup is free for your account.</b></p>"
@@ -992,8 +1040,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
             return page("Log in", login_form("/account/delete", "Log in to delete your account."))
         return page("Delete account", f"""
             <p>This permanently deletes <b>{html.escape(user.email)}</b> and every cloud backup for both apps. It can't
-            be undone. Your data on your own devices stays. If you have a paid plan, cancel it first under
-            <a href="/account">Manage billing / cancel</a>.</p>
+            be undone. Your data on your own devices stays. Any paid plan is cancelled too, so you won't be charged
+            again.</p>
             <form method="post" action="/account/delete">
               <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
               <button style="background:#8B1A1A">Delete my account</button></form>""")
@@ -1070,7 +1118,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         user = web_user(s, rmx_session)
         if not user:
             return RedirectResponse("/account", status_code=303)
-        if not billing_on() or plan_active(user):
+        if not billing_on() or plan_active(user) or app_mode():
             return RedirectResponse("/account", status_code=303)
         if agree != "yes":  # express consent to the automatic-renewal terms is required before charging
             return RedirectResponse("/account?error=1", status_code=303)
@@ -1098,7 +1146,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def account_manage(request: Request, rmx_session: str | None = Cookie(default=None), s: Session = Depends(db)):
         same_origin(request)
         user = web_user(s, rmx_session)
-        if not user or not user.stripe_customer or not billing_on():
+        if not user or not user.stripe_customer or not billing_on() or app_mode():
             return RedirectResponse("/account", status_code=303)
         return RedirectResponse(stripe_portal(user, public_url(request)), status_code=303)
 
@@ -1198,6 +1246,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
         user = web_user(s, rmx_session)
         if not user:
             return page("Log in", login_form("/account/program"))
+        if app_mode():
+            return RedirectResponse("/account", status_code=303)
         return program_page_html(request, user, s, msg=msg)
 
     @app.post("/account/program/{year}/checkout", response_class=HTMLResponse)
@@ -1206,7 +1256,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                                  s: Session = Depends(db)):
         same_origin(request)
         user = web_user(s, rmx_session)
-        if not user:
+        if not user or app_mode():
             return RedirectResponse("/account/program", status_code=303)
         if not billing_on():
             return HTMLResponse(page("Not available", "<p>Program-year purchases aren't set up on this server."
@@ -1485,7 +1535,7 @@ button.link{{background:none;color:#4A1942;text-decoration:underline;padding:0;w
 .err{{background:#F6D6D6;color:#8B1A1A;padding:10px;border-radius:6px;font-weight:600}}.small{{font-size:14px}}
 a{{color:#4A1942}}</style></head>
 <body><h1>{title}</h1>{body}
-<p style="margin-top:40px;font-size:90%"><a href="/account">Account</a> &middot; <a href="/terms">Terms</a>
+<p style="margin-top:40px;font-size:90%">{"" if app_mode() else '<a href="/account">Account</a> &middot; '}<a href="/terms">Terms</a>
 &middot; <a href="/privacy">Privacy</a></p></body></html>"""
 
 

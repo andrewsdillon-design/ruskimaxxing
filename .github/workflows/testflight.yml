@@ -185,7 +185,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: env.SIGNED != 'true'
         with:
-          name: RuskiMaxxing-iOS-unsigned.xcarchive.zip
+          name: RuskiMaxxing-iOS-unsigned-xcarchive
           path: dist/RuskiMaxxing-iOS-unsigned.xcarchive.zip
           retention-days: 7
 

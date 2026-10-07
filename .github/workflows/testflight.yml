@@ -122,7 +122,10 @@ jobs:
         run: |
           xcodebuild archive -project "${{ steps.prep.outputs.project }}" -scheme "${{ steps.prep.outputs.scheme }}" \
             -configuration Release -destination "generic/platform=iOS" -archivePath "$ARCHIVE" \
-            TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet
+            TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            EXPANDED_CODE_SIGN_IDENTITY=- -quiet
+          # (BeeWare's "Process Python libraries" phase codesigns each Python module framework with
+          #  $EXPANDED_CODE_SIGN_IDENTITY; "-" = ad-hoc, since there's no identity in an unsigned build)
 
       - name: Archive (signed)
         if: env.SIGNED == 'true'

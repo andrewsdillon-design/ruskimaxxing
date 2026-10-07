@@ -75,6 +75,10 @@ certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos --non-interactive --redirec
   echo "    certbot failed - check that $DOMAIN's DNS A record points at this server, then re-run"
 
 install -m 700 "$HERE/admin.sh" /usr/local/sbin/ruskimaxxing-admin
+# one-command updates (`sudo ruskimaxxing-deploy`, also what the "Deploy server" GitHub workflow runs)
+install -m 700 "$HERE/deploy.sh" /usr/local/sbin/ruskimaxxing-deploy
+printf 'DOMAIN=%q\nEMAIL=%q\n' "$DOMAIN" "$EMAIL" > /etc/ruskimaxxing-cloud.deploy
+chmod 600 /etc/ruskimaxxing-cloud.deploy
 
 echo "==> Nightly backups"
 install -m 700 "$HERE/backup.sh" /usr/local/sbin/ruskimaxxing-backup

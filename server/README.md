@@ -111,8 +111,35 @@ from any email provider (Brevo, Mailgun, Postmark, Amazon SES, your own mail ser
 ```bash
 sudo systemctl status ruskimaxxing-cloud        # is it running?
 sudo journalctl -u ruskimaxxing-cloud -n 100    # logs
-sudo bash /opt/ruskimaxxing-cloud/app/server/deploy/install.sh api.your-domain.com you@your-domain.com  # update
+sudo ruskimaxxing-deploy                         # update to the latest main (same as re-running install.sh)
 ```
+
+### One-click deploy from Windows
+Double-click **`DEPLOY_SERVER.bat`** in the repo. It runs the **Deploy server** GitHub workflow
+(`.github/workflows/deploy-server.yml`), which:
+1. runs the server tests;
+2. SSHes to the server and runs `ruskimaxxing-deploy`, which pulls `main` and re-runs `install.sh`;
+3. checks `https://<domain>/health`.
+
+You can also start it from the Actions tab → Deploy server → Run workflow.
+
+**The first time,** the .bat asks for:
+- the server address (`api.ruskimaxxing.com`);
+- the login user (usually `root`);
+- the email you installed with.
+
+It then logs in to the server once with your normal password and runs
+`server/deploy/enable_github_deploy.sh` there. That script:
+- deploys the latest version right away;
+- adds an SSH key that only GitHub has. In `authorized_keys` it's locked with
+  `restrict,command="…ruskimaxxing-deploy"`, so it can run the deploy and nothing else: no shell and no
+  forwarding. A non-root user also gets a sudoers rule for that one command.
+
+The private key and the server's host key are stored only as the repo secrets `DEPLOY_SSH_KEY` and
+`DEPLOY_KNOWN_HOSTS`, alongside `DEPLOY_HOST` and `DEPLOY_USER`. The copy on your PC is deleted.
+
+To revoke it, remove the line ending in `ruskimaxxing-github-deploy` from the login user's
+`~/.ssh/authorized_keys`.
 
 ## Admin
 

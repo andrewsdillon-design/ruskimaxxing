@@ -12,93 +12,22 @@ Double-click SHIP_TO_TESTFLIGHT.bat, which runs this. Standard library only. It:
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import shutil
-import subprocess
 import sys
-import time
 import webbrowser
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-REPO = "andrewsdillon-design/ruskimaxxing"
-BRANCH = "main"
+import ghtools
+from ghtools import REPO_DIR, ask, follow, github_login, require_workflow, say, set_secret, step, wait_enter
+
 WORKFLOW = "testflight.yml"
-REPO_DIR = Path(os.environ.get("USERPROFILE") or Path.home()) / "ruskimaxxing"
 SECRETS = ("ASC_ISSUER_ID", "ASC_KEY_ID", "ASC_KEY_P8")
 TEAM = "GA9A5J9A44 (Dillon REA Andrews)"
 APP_NAME = "RuskiMaxxing"
 SKU = "ruskimaxxing-ios"
 KEYS_PAGE = "https://appstoreconnect.apple.com/access/integrations/api"
 APPS_PAGE = "https://appstoreconnect.apple.com/apps"
-WIN_DIRS = {  # where winget puts these, so they work in this window right after installing
-    "git": [r"%ProgramFiles%\Git\cmd"],
-    "gh": [r"%ProgramFiles%\GitHub CLI", r"%LOCALAPPDATA%\Programs\GitHub CLI"],
-}
-
-
-# ----- small helpers ------------------------------------------------------------------
-def say(text: str = "") -> None:
-    print(text, flush=True)
-
-
-def step(title: str) -> None:
-    say()
-    say("=" * 70)
-    say("  " + title)
-    say("=" * 70)
-
-
-def ask(prompt: str) -> str:
-    try:
-        return input(prompt).strip()
-    except EOFError:
-        return ""
-
-
-def wait_enter(prompt: str = "Press Enter when that's done (or type q to quit): ") -> None:
-    if ask(prompt).lower() in ("q", "quit", "exit"):
-        sys.exit("Stopped. Double-click SHIP_TO_TESTFLIGHT.bat to carry on later.")
-
-
-def run(cmd, check=True, capture=False, input_text=None, cwd=None) -> subprocess.CompletedProcess:
-    result = subprocess.run(cmd, cwd=cwd, text=True, input=input_text,
-                            stdout=subprocess.PIPE if capture else None,
-                            stderr=subprocess.PIPE if capture else None)
-    if check and result.returncode:
-        detail = (result.stderr or result.stdout or "").strip() if capture else ""
-        sys.exit(f"\nThis failed: {' '.join(map(str, cmd[:3]))} ...\n{detail}")
-    return result
-
-
-def gh(*args, **kw) -> subprocess.CompletedProcess:
-    return run(["gh", *args], **kw)
-
-
-def find_tool(name: str) -> bool:
-    if shutil.which(name):
-        return True
-    for d in WIN_DIRS.get(name, []):
-        d = os.path.expandvars(d)
-        if Path(d, name + ".exe").exists():
-            os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
-            return True
-    return False
-
-
-def ensure_tool(name: str, winget_id: str) -> None:
-    if find_tool(name):
-        return
-    if os.name != "nt" or not shutil.which("winget"):
-        sys.exit(f"Please install {name} first (https://cli.github.com for gh, https://git-scm.com for git).")
-    say(f"Installing {name} with winget...")
-    run(["winget", "install", "-e", "--id", winget_id, "--accept-source-agreements",
-         "--accept-package-agreements"], check=False)
-    if not find_tool(name):
-        sys.exit(f"{name} was installed but this window can't see it yet. Close this window and "
-                 "double-click SHIP_TO_TESTFLIGHT.bat again.")
+ghtools.BAT = "SHIP_TO_TESTFLIGHT.bat"
 
 
 def bundle_id(repo_dir: Path) -> str:
@@ -110,60 +39,9 @@ def bundle_id(repo_dir: Path) -> str:
     return f"{bundle}.{app.replace('_', '-').lower()}"
 
 
-# ----- 1. tools, repo, GitHub sign-in ----------------------------------------------------
-def update_repo() -> None:
-    if (REPO_DIR / ".git").exists():
-        say(f"Updating {REPO_DIR} ...")
-        dirty = run(["git", "-C", str(REPO_DIR), "status", "--porcelain"], capture=True).stdout.strip()
-        if dirty:
-            say("  (you have local changes there, so it isn't updated; that's fine for shipping)")
-            return
-        run(["git", "-C", str(REPO_DIR), "checkout", "-q", BRANCH], check=False)
-        run(["git", "-C", str(REPO_DIR), "pull", "-q", "--ff-only", "origin", BRANCH], check=False)
-    else:
-        say(f"Downloading the project to {REPO_DIR} ...")
-        run(["git", "clone", "-q", f"https://github.com/{REPO}.git", str(REPO_DIR)])
-
-
-def run_latest_copy() -> None:
-    """Always run the newest version of this script (the one in the freshly updated repo)."""
-    latest = REPO_DIR / "tools" / "ship_ios.py"
-    if os.environ.get("RM_SHIP_LATEST") or not latest.exists():
-        return
-    os.environ["RM_SHIP_LATEST"] = "1"
-    sys.exit(subprocess.run([sys.executable, str(latest)]).returncode)
-
-
-def github_login() -> None:
-    if gh("auth", "status", "--hostname", "github.com", check=False, capture=True).returncode == 0:
-        return
-    step("Sign in to GitHub")
-    say("Your browser opens. Copy the 8-character code shown here, paste it on the GitHub page,")
-    say("and approve. Answer any questions here with Enter (the defaults are right).")
-    gh("auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web")
-
-
-def workflow_on_main() -> bool:
-    return gh("api", f"repos/{REPO}/contents/.github/workflows/{WORKFLOW}?ref={BRANCH}", "--silent",
-              check=False, capture=True).returncode == 0
-
-
-def require_workflow() -> None:
-    while not workflow_on_main():
-        step("One thing first: merge the pull request")
-        say("GitHub only lets you start the TestFlight build once it's on the main branch.")
-        say("Opening the pull requests page: open the 'Ship the iPhone app to TestFlight' one and")
-        say("click 'Merge pull request' (if it says Draft, click 'Ready for review' first).")
-        webbrowser.open(f"https://github.com/{REPO}/pulls")
-        wait_enter("Press Enter after merging (or type q to quit): ")
-        update_repo()
-
-
 # ----- 2. App Store Connect API key -> GitHub secrets ------------------------------------
 def secrets_present() -> bool:
-    out = gh("secret", "list", "-R", REPO, capture=True).stdout
-    names = {line.split()[0] for line in out.splitlines() if line.strip()}
-    return all(s in names for s in SECRETS)
+    return set(SECRETS) <= ghtools.secret_names()
 
 
 def pick_p8() -> str:
@@ -229,7 +107,7 @@ def setup_keys() -> None:
 
     say("Saving them as encrypted GitHub secrets (they're never shown or saved anywhere else)...")
     for name, value in (("ASC_ISSUER_ID", issuer), ("ASC_KEY_ID", key_id), ("ASC_KEY_P8", key)):
-        gh("secret", "set", name, "-R", REPO, input_text=value, capture=True)
+        set_secret(name, value)
     say("Saved. You can delete the .p8 from Downloads now, or keep it somewhere safe as a backup.")
 
 
@@ -253,39 +131,8 @@ def new_app_guide(bid: str) -> None:
 
 
 # ----- 3/4. run the workflow on GitHub and follow it -------------------------------------
-def start_run(preflight_only: bool) -> tuple[int, str]:
-    started = datetime.now(timezone.utc) - timedelta(seconds=30)
-    gh("workflow", "run", WORKFLOW, "-R", REPO, "--ref", BRANCH,
-       "-f", f"preflight_only={'true' if preflight_only else 'false'}", capture=True)
-    for _ in range(40):  # the run takes a few seconds to appear
-        time.sleep(3)
-        out = gh("run", "list", "-R", REPO, "-w", WORKFLOW, "-e", "workflow_dispatch", "-L", "5",
-                 "--json", "databaseId,createdAt,url", capture=True, check=False).stdout or "[]"
-        runs = [r for r in json.loads(out)
-                if datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00")) >= started]
-        if runs:
-            newest = max(runs, key=lambda r: r["createdAt"])
-            return newest["databaseId"], newest["url"]
-    sys.exit(f"Started the build but couldn't find it. Look here: https://github.com/{REPO}/actions")
-
-
-def follow(preflight_only: bool) -> tuple[bool, str, str]:
-    run_id, url = start_run(preflight_only)
-    say(f"Following it live (you can also watch at {url})")
-    ok = gh("run", "watch", str(run_id), "-R", REPO, "--exit-status", "--interval", "10",
-            check=False).returncode == 0
-    log = "" if ok else (gh("run", "view", str(run_id), "-R", REPO, "--log-failed",
-                            capture=True, check=False).stdout or "")
-    return ok, log, url
-
-
 def explain_failure(log: str, url: str) -> None:
-    lines = [ln.split("\t")[-1] for ln in log.splitlines() if ln.strip()]
-    say()
-    say("---- last lines of the failing step ----")
-    for line in lines[-40:]:
-        say(line[:200])
-    say("-----------------------------------------")
+    ghtools.show_log_tail(log)
     low = log.lower()
     if "cloud signing permission" in low or "api_key_role" in low or "requires the admin role" in low:
         hint = ("The API key needs the Admin role. Make a new key with Access: Admin, then run this again "
@@ -304,13 +151,9 @@ def explain_failure(log: str, url: str) -> None:
 
 def main() -> None:
     step("RuskiMaxxing -> TestFlight")
-    ensure_tool("git", "Git.Git")
-    ensure_tool("gh", "GitHub.cli")
-    if not os.environ.get("RM_SHIP_LATEST"):
-        update_repo()
-        run_latest_copy()
+    ghtools.start("ship_ios.py")
     github_login()
-    require_workflow()
+    require_workflow(WORKFLOW)
     bid = bundle_id(REPO_DIR if REPO_DIR.exists() else Path(__file__).resolve().parent.parent)
     say(f"iPhone app bundle ID: {bid}   Apple team: {TEAM}")
 
@@ -321,7 +164,7 @@ def main() -> None:
 
     while True:
         step("Checking the Apple setup on GitHub (about 1 minute)")
-        ok, log, url = follow(preflight_only=True)
+        ok, log, url = follow(WORKFLOW, {"preflight_only": "true"})
         if ok:
             break
         if "APP_RECORD_MISSING" in log:
@@ -336,7 +179,7 @@ def main() -> None:
 
     step("Building, signing and uploading on GitHub's Mac (about 15-25 minutes)")
     say("You can leave this window open and do something else.")
-    ok, log, url = follow(preflight_only=False)
+    ok, log, url = follow(WORKFLOW, {"preflight_only": "false"})
     if not ok:
         explain_failure(log, url)
         sys.exit(1)

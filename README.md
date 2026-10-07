@@ -50,6 +50,9 @@ The same program, logging and PR tracking as the desktop app, built with BeeWare
   - iOS bundle ID: `io.github.andrewsdillondesign.ruskimaxxing-mobile` (the Android package ID keeps its `_`).
   - Without the Apple secrets, and on pull requests, the workflow still builds and checks an unsigned archive.
   - Every build also compiles the app for the iOS Simulator (the `ios` job in `build.yml`).
+- **Cloud server updates**: double-click **`DEPLOY_SERVER.bat`** to deploy the latest `main` to
+  api.ruskimaxxing.com. It tests first, then deploys and checks the server is up. See
+  [`server/README.md`](server/README.md) → "One-click deploy from Windows".
 - **Your data stays on your phone** (a local database). Optional **cloud backup** (Setup → Cloud backup)
   lets people log in on a new phone and get everything back. It runs on your own server; see
   [`server/README.md`](server/README.md).

@@ -1,0 +1,81 @@
+name: Deploy server
+
+# Updates RuskiMaxxing Cloud (api.ruskimaxxing.com) to the latest main branch: runs the server tests,
+# then SSHes to the server and runs `ruskimaxxing-deploy` (git pull + install.sh), then checks it's up.
+# The easy way to run it: double-click DEPLOY_SERVER.bat on Windows (it also does the one-time setup).
+# Or: Actions tab -> Deploy server -> Run workflow (on main).
+#
+# Repo secrets (set by DEPLOY_SERVER.bat): DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY (a private key only
+# GitHub has; on the server it's locked to running ruskimaxxing-deploy) and DEPLOY_KNOWN_HOSTS (the
+# server's SSH host key, so GitHub never connects to an impostor).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false  # never cut off a deploy halfway
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . -r server/requirements.txt
+      - run: pytest -q server/tests tests/test_sync.py
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'  # the server always pulls main
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash  # -eo pipefail
+    steps:
+      - name: Check the deploy secrets are set
+        env:
+          HAS_SECRETS: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_KNOWN_HOSTS != '' }}
+        run: |
+          [ "$HAS_SECRETS" = true ] || {
+            echo "::error::DEPLOY_NOT_SET_UP: the DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY and DEPLOY_KNOWN_HOSTS secrets aren't set. Double-click DEPLOY_SERVER.bat to set them up."
+            exit 1; }
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          (umask 077; mkdir -p ~/.ssh
+           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/deploy_known_hosts)
+          # the server ignores the command sent and runs ruskimaxxing-deploy (forced by its authorized_keys)
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/deploy_known_hosts -o ConnectTimeout=30 \
+              "$DEPLOY_USER@$DEPLOY_HOST" ruskimaxxing-deploy 2>&1 | tee deploy.log
+
+      - name: Check it's live
+        run: |
+          commit=$(sed -n 's/^DEPLOYED_COMMIT=//p' deploy.log | tail -1)
+          domain=$(sed -n 's/^DEPLOYED_DOMAIN=//p' deploy.log | tail -1)
+          [ -n "$commit" ] && [ -n "$domain" ] || { echo "::error::The server didn't report a deploy"; exit 1; }
+          if [ "$commit" = "$GITHUB_SHA" ]; then
+            echo "Deployed $commit"
+          else
+            echo "::warning::The server is on $commit, not $GITHUB_SHA (main moved on while this ran?)"
+          fi
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors "https://$domain/health"
+          echo
+          echo "Deployed ${commit:0:7} to https://$domain" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

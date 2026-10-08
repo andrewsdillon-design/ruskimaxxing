@@ -54,9 +54,11 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
+          # tr -d '\r': secrets saved from Windows can have CRLF line endings, which ssh can't load
+          # ("Load key ... error in libcrypto")
           (umask 077; mkdir -p ~/.ssh
-           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/deploy_known_hosts)
+           printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/deploy_known_hosts)
           # the server ignores the command sent and runs ruskimaxxing-deploy (forced by its authorized_keys)
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/deploy_known_hosts -o ConnectTimeout=30 \

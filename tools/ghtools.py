@@ -151,7 +151,11 @@ def secret_names() -> set[str]:
 
 def set_secret(name: str, value: str) -> None:
     """Stored encrypted on GitHub; the value goes in on stdin, so it's never shown or saved anywhere."""
-    gh("secret", "set", name, "-R", REPO, input_text=value, capture=True)
+    # bytes, not text: on Windows, text mode would turn every \n into \r\n and break SSH keys
+    result = subprocess.run(["gh", "secret", "set", name, "-R", REPO], input=value.encode("utf-8"),
+                            capture_output=True)
+    if result.returncode:
+        sys.exit(f"\nCouldn't save the {name} secret on GitHub:\n{result.stderr.decode(errors='replace').strip()}")
 
 
 # ----- run a workflow on GitHub and follow it ------------------------------------------

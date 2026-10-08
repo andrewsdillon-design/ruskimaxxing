@@ -1,85 +1,87 @@
 # iPhone app: TestFlight and the App Store
 
-The iPhone app (`src/ruskimaxxing_mobile`, BeeWare/Toga, Python) is built, signed and uploaded by
-GitHub Actions on a Mac runner, so no Mac is needed. From Windows, double-click
-**`SHIP_TO_TESTFLIGHT.bat`**.
+The phone app lives in **`mobile/`**. It's an Expo (React Native + TypeScript) app with the same look as the
+Orthodox Barbell Club app, in RuskiMaxxing's colors. Expo builds and signs it in its own cloud (EAS) and
+uploads it to App Store Connect, so no Mac is needed. From Windows, double-click **`SHIP_TO_TESTFLIGHT.bat`**.
 
 | | |
 |---|---|
-| Bundle ID (iOS) | `io.github.andrewsdillondesign.ruskimaxxing-mobile` (Briefcase turns `_` into `-`; App Store IDs can't have `_`) |
-| Android package | `io.github.andrewsdillondesign.ruskimaxxing_mobile` (unchanged, so existing APK installs still update) |
+| Bundle ID (iOS) | `io.github.andrewsdillondesign.ruskimaxxing-mobile` (the same App Store Connect app as the earlier builds) |
+| Android package | `io.github.andrewsdillondesign.ruskimaxxing_mobile` |
 | Apple team | GA9A5J9A44, Dillon REA Andrews (Individual) |
-| Version | `version` in `pyproject.toml` (`[tool.briefcase]`) |
-| Build number | `<run number>.<attempt>` of the TestFlight workflow, so it always goes up |
-| Devices | iPhone only (`TARGETED_DEVICE_FAMILY=1`), so no iPad screenshots are needed |
-| Workflow | `.github/workflows/testflight.yml` |
+| Expo account | dandrews91, project `ruskimaxxing` (its ID is saved in `mobile/eas-project.json`) |
+| Version | `version` in `mobile/app.config.ts` (and `mobile/package.json`): **2.4.0** |
+| Build number | Managed by EAS (`appVersionSource: remote`, `autoIncrement`), so it always goes up |
+| Devices | iPhone only (`supportsTablet: false`), so no iPad screenshots are needed |
 
 ## How it works
 
-1. **`SHIP_TO_TESTFLIGHT.bat`** installs Git and Python if they're missing, then runs `tools/ship_ios.py`, which:
-   installs the GitHub CLI, clones or updates the repo in `%USERPROFILE%\ruskimaxxing`, signs in to GitHub,
-   does the one-time Apple setup, starts the workflow and follows it live.
-2. **Workflow, `preflight` job (Linux, about 30 seconds):** registers the bundle ID with Apple if needed, and
-   checks that the App Store Connect app exists. If it doesn't, the job stops with `APP_RECORD_MISSING`, and
-   the script shows you exactly what to type into **New App**.
-3. **Workflow, `ios` job (macOS, about 15 to 25 minutes):**
-   - `briefcase create iOS`.
-   - `tools/ios_prepare.py`: sets the build number and version, sets `ITSAppUsesNonExemptEncryption = false`,
-     checks the `ruskimaxxing://` URL scheme, adds `packaging/ios/PrivacyInfo.xcprivacy`, checks that the
-     1024 px icon has no alpha channel, and prints the bundle ID.
-   - `xcodebuild archive`, unsigned. An automatically signed archive needs a development profile, and Apple
-     only makes one once an iPhone is registered to the team ("Your team has no devices").
-   - Checks the archive's contents.
-   - `xcodebuild -exportArchive` with `packaging/ios/ExportOptions.plist` (app-store-connect, upload). This step
-     signs for the App Store: the API key lets Xcode create the distribution certificate and App Store profile. If that
-     fails, it falls back to exporting an `.ipa` and uploading it with `xcrun altool`.
+**`SHIP_TO_TESTFLIGHT.bat`** installs Git, Node.js and Python if they're missing and updates
+`%USERPROFILE%\ruskimaxxing`. It then runs **`tools/ship_expo.py`**, which:
+1. installs the app's packages and runs TypeScript and the tests;
+2. signs in to Expo as dandrews91;
+3. the first time only, creates the Expo project and commits its ID;
+4. builds in Expo's cloud with `eas build --platform ios --profile production --auto-submit-with-profile production`.
 
-**Without the secrets, and always on pull requests,** the workflow builds and checks an **unsigned** archive,
-uploads it as a run artifact, and stops before signing. This proves that everything up to signing works.
+The build is uploaded to App Store Connect when it finishes, and shows up in TestFlight 10–30 minutes later.
 
-### Secrets (set by the .bat; stored only as GitHub repo secrets)
+**The first build** asks you to sign in to Apple as andrews.dillon@gmail.com, type the 6-digit code from your
+iPhone, and answer **yes** to creating the distribution certificate and provisioning profile. EAS stores them, so
+later builds don't ask again.
 
-| Secret | What it is |
-|---|---|
-| `ASC_ISSUER_ID` | Issuer ID shown above the API keys table |
-| `ASC_KEY_ID` | The key's 10-character Key ID |
-| `ASC_KEY_P8` | Full contents of the downloaded `AuthKey_XXXXXXXXXX.p8` |
+`python tools/ship_expo.py android` builds an installable Android APK and prints a download link.
 
-Create the key at App Store Connect → **Users and Access → Integrations → App Store Connect API → Team Keys →
-Generate API Key**, with Access set to **Admin**. App Manager can upload builds, but it can't create the cloud-managed
-signing certificate that a Mac without your certificates needs. That fails with "Cloud signing permission
-error". The key file can only be downloaded once.
+### The training logic is ported and tested
 
-### Why the order matters (bundle ID → New App → upload)
+The program, workout pre-fills, training maxes, PRs and jump standards in `mobile/src/core/` are a TypeScript
+port of `src/ruskimaxxing/`.
 
-App Store Connect's **New App** form only lists bundle IDs that are already registered with Apple, and an upload
-fails ("No suitable application records were found") until that app exists. The script's first check run
-registers the bundle ID through the API, then tells you to create the app, then builds. If you register it by
-hand instead, use Certificates, Identifiers & Profiles → Identifiers → + → App IDs → App → Explicit
-`io.github.andrewsdillondesign.ruskimaxxing-mobile`.
+`tools/export_mobile_fixtures.py` runs the Python originals on the whole program and on worked examples (lb,
+kg, no height), and writes `mobile/src/core/__tests__/fixtures.json`. The jest golden tests require the
+TypeScript output to match exactly, down to Python's round-half-to-even and number formatting.
 
-### New App values
+Whenever the Python logic changes, re-run the script. `tests/test_mobile_fixtures.py` fails until you do.
+
+Cloud backup sends records in the desktop app's format, so the phone and desktop app can share one account.
+
+### Checks
+
+- **`.github/workflows/mobile.yml`** (on pushes and PRs that touch `mobile/` or the Python logic) runs:
+  - the golden-data freshness check;
+  - TypeScript;
+  - jest;
+  - `expo-doctor`;
+  - a web build.
+- To run them locally: `cd mobile && npm ci && npx tsc --noEmit && npx jest`.
+- To preview on your computer: `npx expo start --web`.
+
+### New App values (already done; kept for reference)
 
 | Field | Value |
 |---|---|
 | Platforms | iOS |
-| Name | RuskiMaxxing. It must be unique on the store; if it's taken, use "RuskiMaxxing: Strength Program" |
+| Name | RuskiMaxxing |
 | Primary language | English (U.S.) |
 | Bundle ID | `io.github.andrewsdillondesign.ruskimaxxing-mobile` |
 | SKU | `ruskimaxxing-ios` |
-| User access | Full Access |
 
 ### Shipping a new version
 
-Bump the version in **both** places in `pyproject.toml`, and `__version__` in `src/ruskimaxxing/__init__.py`. Then run
-the .bat again or push a `v*` tag. After a version has been approved, Apple rejects new builds that use the same version.
+Bump `version` in `mobile/app.config.ts` and `mobile/package.json`, then double-click the .bat. Build numbers go up
+by themselves. After a version has been approved, Apple rejects new builds that use the same version.
+
+### The old GitHub build
+
+Builds up to 2.3.1 (9.1) came from a BeeWare/Python app built on GitHub Actions. That pipeline has been removed.
+The GitHub repo secrets `ASC_ISSUER_ID`, `ASC_KEY_ID` and `ASC_KEY_P8` aren't used any more and can be deleted.
+The App Store Connect API key itself can be revoked too, unless you use it elsewhere.
 
 ---
 
 ## TestFlight-first checklist
 
 **Now (internal TestFlight, no review needed):**
-- [ ] Merge the PR, double-click `SHIP_TO_TESTFLIGHT.bat`, and do the one-time key and New App steps.
+- [ ] Double-click `SHIP_TO_TESTFLIGHT.bat` and do the one-time Expo and Apple sign-ins.
 - [ ] Wait 10–30 minutes for the "processing complete" email.
 - [ ] App Store Connect → the app → TestFlight → Internal Testing → **+** → add yourself.
 - [ ] On the iPhone, install **TestFlight** from the App Store and accept the invite.
@@ -106,7 +108,7 @@ the .bat again or push a `v*` tag. After a version has been approved, Apple reje
 ## App Review readiness
 
 ### Account deletion (guideline 5.1.1(v)): done in this PR
-- Setup → Cloud backup → **Delete account** asks for the password and deletes the account and all cloud
+- Setup (the gear, top right) → Cloud backup → **Delete account** asks for the password and deletes the account and all cloud
   backups in the app (`DELETE /api/account`). If the password is forgotten, a "Delete on the website" button
   opens `/account/delete?app=1`.
 - Deleting an account (in the app or on the website) also **cancels any Stripe subscription**, so nobody is
@@ -140,18 +142,18 @@ The server change must be deployed to api.ruskimaxxing.com before App Review. Ol
 but they open pages without `?app=1`.
 
 **If Years 2–3 come to the phone later:** keep them unlock-only. The app checks the signed-in account (as cloud
-backup does) and shows the content if it's owned. On iOS (`toga.platform.current_platform == "iOS"`), show no
+backup does) and shows the content if it's owned. On iOS (`Platform.OS === 'ios'`), show no
 price, no buy button and no "buy on the website" text. People who don't own it see only that it's "not on
 this account". Year 1 stays free.
 
 ### Export compliance
-`ITSAppUsesNonExemptEncryption = false` is in Info.plist. The app uses only HTTPS (exempt), so App Store
+`ITSAppUsesNonExemptEncryption = false` is in Info.plist (set in `mobile/app.config.ts`). The app uses only HTTPS (exempt), so App Store
 Connect won't ask on each build.
 
 ### Privacy manifest
-`packaging/ios/PrivacyInfo.xcprivacy` includes:
+`ios.privacyManifests` in `mobile/app.config.ts` (Expo writes it into PrivacyInfo.xcprivacy) includes:
 - No tracking.
-- Required-reason APIs used by Python and Toga: file timestamps (C617.1), system boot time (35F9.1), disk space
+- Required-reason APIs used by React Native and Expo: file timestamps (C617.1), system boot time (35F9.1), disk space
   (E174.1) and UserDefaults (CA92.1).
 - The data types below.
 
@@ -180,10 +182,10 @@ open in Safari; there's no in-app browser), advertising, and parental controls. 
 ```
 Thanks for testing RuskiMaxxing, a free 1-year strength, mass and power program.
 Please try:
-1. Setup tab: enter your intake (units, start Monday, height, bodyweight) and a starting max or two.
-2. Workout tab: open this week's Day 1, log sets (weight, reps, RPE, done), Save workout, then All done.
+1. Setup (gear, top right): enter your intake (units, start Monday, height, bodyweight) and a starting max or two.
+2. Today tab: open this week's Day 1, log sets (weight, reps, RPE, tick done), then Save workout.
 3. Progress, PRs and Body tabs: check charts, PRs and bodyweight entries update.
-4. Optional: Setup > Cloud backup > Create account or log in. Finish on the website, tap "Return to
+4. Optional: Setup > Cloud backup > Create a free account or log in. Finish on the website, tap "Return to
    the app", then Back up now. Try Delete account too (it asks for your password).
 5. Close and reopen the app: everything should still be there.
 Report anything confusing, cut off or slow (screenshot + what you tapped) with TestFlight's feedback.
@@ -194,7 +196,7 @@ Report anything confusing, cut off or slow (screenshot + what you tapped) with T
 RuskiMaxxing is a free strength-training program and workout log. All training data is stored
 on the device. There are no in-app purchases and no ads.
 
-Optional cloud backup: Setup tab > "3. Cloud backup" > "Create account or log in". This opens our
+Optional cloud backup: Setup (gear icon, top right) > "3. Cloud backup" > "Create a free account or log in". This opens our
 website (https://api.ruskimaxxing.com) in Safari to sign in, then returns to the app via the
 ruskimaxxing:// link and syncs. Demo account with backup active:
   Email:    <reviewer email>
@@ -202,6 +204,6 @@ ruskimaxxing:// link and syncs. Demo account with backup active:
 Account deletion: Setup > Cloud backup > Delete account (in the app; asks for the password).
 Privacy policy and terms: buttons at the end of the Cloud backup section in Setup.
 
-The app is built with Python (BeeWare Toga). Encryption: HTTPS only (exempt).
+The app is built with Expo (React Native). Encryption: HTTPS only (exempt).
 ```
 Sign-in required: **No**. The demo account is only for the optional backup.

@@ -25,40 +25,40 @@ well-established training knowledge, and it should be free for everyone.
 | macOS app | `RuskiMaxxing-macOS.zip` on the [Releases](../../releases) page |
 | Linux app | `RuskiMaxxing-Linux.tar.gz` on the [Releases](../../releases) page |
 | Android app | `RuskiMaxxing-Android.apk` on the [Releases](../../releases) page |
-| iPhone app | TestFlight / App Store, built and uploaded from GitHub Actions (see Phone apps) |
+| iPhone app | TestFlight / App Store, built in Expo's cloud with `SHIP_TO_TESTFLIGHT.bat` (see Phone apps) |
 
 ## Phone apps (Android / iPhone)
 
 <p>
-<img src="docs/screenshots/phone_workout.png" width="200" alt="Phone: workout">
+<img src="docs/screenshots/phone_today.png" width="200" alt="Phone: today">
+<img src="docs/screenshots/phone_workout.png" width="200" alt="Phone: workout logger">
 <img src="docs/screenshots/phone_progress.png" width="200" alt="Phone: progress charts">
 <img src="docs/screenshots/phone_prs.png" width="200" alt="Phone: PRs and jump standards">
-<img src="docs/screenshots/phone_setup.png" width="200" alt="Phone: setup">
 </p>
 
-The same program, logging and PR tracking as the desktop app, built with BeeWare (Python).
+The phone app is in **`mobile/`**. It's an Expo (React Native) app with the same program, logging, PR tracking,
+charts and cloud backup as the desktop app, in the Byzantine purple-and-gold theme. Its training logic is a
+TypeScript port of `src/ruskimaxxing/`. Golden tests check it gives exactly the same numbers as the Python
+(`tools/export_mobile_fixtures.py`).
 
-- **Android**: download `RuskiMaxxing-Android.apk` from the [Releases](../../releases) page and open it
-  on your phone. Android will ask you to allow "install unknown apps" for your browser or files app.
-  - To publish on **Google Play** later, you'll need a Play developer account ($25 one-time) and a signing key.
-    Briefcase builds the store bundle with `briefcase package android` (AAB).
-- **iPhone**: shipped through **TestFlight / the App Store**, built and signed by GitHub Actions on a Mac
-  runner (`.github/workflows/testflight.yml`), so no Mac is needed. On Windows, double-click
-  **`SHIP_TO_TESTFLIGHT.bat`**. It sets everything up the first time (Apple API key, App Store Connect app),
-  then builds, signs and uploads. The build shows up in TestFlight 10–30 minutes later. Details, the App Review
-  checklist and the privacy answers are in [`docs/APP_STORE.md`](docs/APP_STORE.md).
+- **iPhone**: shipped through **TestFlight / the App Store**. Expo's cloud (EAS) builds, signs and uploads it, so
+  no Mac is needed. On Windows, double-click **`SHIP_TO_TESTFLIGHT.bat`**. The first time, it asks you to sign
+  in to Expo (dandrews91) and Apple (andrews.dillon@gmail.com + the code on your iPhone). The build shows up
+  in TestFlight 10–30 minutes later. Details, the App Review checklist and the privacy answers are in
+  [`docs/APP_STORE.md`](docs/APP_STORE.md).
   - iOS bundle ID: `io.github.andrewsdillondesign.ruskimaxxing-mobile` (the Android package ID keeps its `_`).
-  - Without the Apple secrets, and on pull requests, the workflow still builds and checks an unsigned archive.
-  - Every build also compiles the app for the iOS Simulator (the `ios` job in `build.yml`).
+- **Android**: `python tools/ship_expo.py android` builds an installable APK in Expo's cloud and prints the
+  download link. The older Python (BeeWare) Android app is still on the [Releases](../../releases) page as
+  `RuskiMaxxing-Android.apk`.
 - **Cloud server updates**: double-click **`DEPLOY_SERVER.bat`** to deploy the latest `main` to
   api.ruskimaxxing.com. It tests first, then deploys and checks the server is up. See
   [`server/README.md`](server/README.md) → "One-click deploy from Windows".
-- **Your data stays on your phone** (a local database). Optional **cloud backup** (Setup → Cloud backup)
-  lets people log in on a new phone and get everything back. It runs on your own server; see
-  [`server/README.md`](server/README.md).
+- **Your data stays on your phone**. Optional **cloud backup** (Setup, the gear icon → Cloud backup) lets people
+  log in on a new phone and get everything back, and shares the account with the desktop app. It runs on your
+  own server; see [`server/README.md`](server/README.md).
 
-Build it yourself: `pip install briefcase`, then `briefcase dev` (preview on your computer),
-`briefcase run android` (emulator or USB phone) or `briefcase run iOS` (Mac only).
+Try it on your computer: `cd mobile && npm install && npx expo start --web`. To test it on your phone, run
+`npx expo start` and scan the QR code with Expo Go. Checks: `npx tsc --noEmit && npx jest`.
 
 ## Requirements
 
@@ -207,7 +207,7 @@ storage.py     local SQLite database for the app
 excel.py       builds the formula-driven workbook (month sheets, per-set rows)
 gui.py         desktop app (tkinter, Byzantine theme, per-set workout logger)
 workout.py     workout logic shared by the desktop and phone apps
-../ruskimaxxing_mobile/  phone app (BeeWare Toga): Workout, Progress, PRs, Body, Setup
+../ruskimaxxing_mobile/  older phone app (BeeWare Toga; the current one is mobile/, Expo)
 assets/        logo and app icon (regenerate: python packaging/make_logo.py)
 cli.py         command line
 ```

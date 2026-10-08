@@ -1,4 +1,4 @@
-"""Shared helpers for the one-click Windows scripts (SHIP_TO_TESTFLIGHT.bat, DEPLOY_SERVER.bat).
+"""Shared helpers for the one-click Windows scripts (DEPLOY_SERVER.bat).
 
 Standard library only. They install Git / the GitHub CLI if needed, keep %USERPROFILE%\\ruskimaxxing up
 to date, sign in to GitHub, store repo secrets, and start + follow a GitHub Actions workflow.

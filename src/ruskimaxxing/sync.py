@@ -90,7 +90,8 @@ class Cloud:
             raise CloudError("Enter your server address first")
         code, data = self.transport(method, self.url + path, body,
                                     self.store.get("cloud_token", "") if auth else None)
-        if code == 401 and auth:
+        # 401 means the session ended - except DELETE /api/account's "Wrong password", which keeps you signed in
+        if code == 401 and auth and data.get("detail") != "Wrong password":
             self.store.set("cloud_token", "")
         if code >= 400:
             raise CloudError(data.get("detail") if isinstance(data.get("detail"), str) else f"Server error ({code})",

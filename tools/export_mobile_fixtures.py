@@ -85,79 +85,86 @@ def history(unit: str) -> list[LogEntry]:
 def scenario(unit: str, increment: float, height: float | None) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         store = Store(Path(tmp) / "data.db")
-        store.set("units", unit)
-        store.set("increment", f"{increment:g}")
-        store.set("start", START.isoformat())
-        if height:
-            store.set("height", f"{height:g}")
-        entries = history(unit)
-        for e in entries:
-            store.add_lift(e)
-        cfg = wo.Settings.from_store(store)
-        lifts = store.lifts()
+        try:
+            return _scenario(store, unit, increment, height)
+        finally:
+            store.close()  # Windows can't delete the temp folder while the database is open
 
-        workouts = []
-        for week, day in [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (3, 2), (4, 0), (9, 0), (11, 0),
-                          (11, 1), (12, 0), (12, 1), (12, 2), (13, 0), (13, 2), (14, 0), (49, 0), (52, 1)]:
-            blocks = wo.workout_model(store, week, day, cfg)
-            workouts.append({"week": week, "day": day, "blocks": [
-                {"exercise": b["p"].exercise, "source": b["source"], "planned": b["planned"], "note": b["note"],
-                 "rows": b["rows"]} for b in blocks]})
 
-        tms = []
-        for ex in list(MAIN) + ["Box Squat", "Pause Squat", "Close-Grip Bench Press", "Romanian Deadlift",
-                                "Push Press", "Barbell Row"]:
-            for cyc in range(0, 6):
-                tm, est = training_max(lifts, ex, cycle_start(START, cyc))
-                tms.append({"exercise": ex, "cycle": cyc, "tm": tm, "estimated": est})
+def _scenario(store: Store, unit: str, increment: float, height: float | None) -> dict:
+    store.set("units", unit)
+    store.set("increment", f"{increment:g}")
+    store.set("start", START.isoformat())
+    if height:
+        store.set("height", f"{height:g}")
+    entries = history(unit)
+    for e in entries:
+        store.add_lift(e)
+    cfg = wo.Settings.from_store(store)
+    lifts = store.lifts()
 
-        prs = {}
-        for ex in list(MAIN) + ["Box Squat", "Barbell Row", "Box Jump"]:
-            rms = rep_maxes(lifts, ex)
-            best = best_e1rm(lifts, ex)
-            prs[ex] = {"repMaxes": {str(n): entry_json(e) for n, e in rms.items()},
-                       "bestE1rm": best.e1rm if best else None,
-                       "history": [[d.isoformat(), v] for d, v in e1rm_history(lifts, ex)]}
+    workouts = []
+    for week, day in [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (3, 2), (4, 0), (9, 0), (11, 0),
+                      (11, 1), (12, 0), (12, 1), (12, 2), (13, 0), (13, 2), (14, 0), (49, 0), (52, 1)]:
+        blocks = wo.workout_model(store, week, day, cfg)
+        workouts.append({"week": week, "day": day, "blocks": [
+            {"exercise": b["p"].exercise, "source": b["source"], "planned": b["planned"], "note": b["note"],
+             "rows": b["rows"]} for b in blocks]})
 
-        jumps = []
-        for jump in JUMP_STANDARDS:
-            for best in (None, 10, 20, 30, 51, 60, 84, 100, 213, 250):
-                hu = cfg.height_unit
-                jumps.append({"exercise": jump, "best": best, "height": height, "unit": hu,
-                              "targets": [list(t) for t in jump_targets(jump, height, hu)],
-                              "level": jump_level(jump, best, height, hu)})
+    tms = []
+    for ex in list(MAIN) + ["Box Squat", "Pause Squat", "Close-Grip Bench Press", "Romanian Deadlift",
+                            "Push Press", "Barbell Row"]:
+        for cyc in range(0, 6):
+            tm, est = training_max(lifts, ex, cycle_start(START, cyc))
+            tms.append({"exercise": ex, "cycle": cyc, "tm": tm, "estimated": est})
 
-        # save a session with edits: two done squat sets (one a PR), a done set with no reps, an extra set
-        blocks = wo.workout_model(store, 13, 0, cfg)
-        edits = [{"block": 1, "row": 0, "weight": f"{round(265 * (1 if unit == 'lb' else 0.4536), 1):g}",
-                  "reps": "3", "rpe": "9", "done": True},
-                 {"block": 1, "row": 1, "done": True},
-                 {"block": 2, "row": 0, "reps": "", "done": True},
-                 {"block": 0, "row": 0, "done": True}]
-        for ed in edits:
-            row = blocks[ed["block"]]["rows"][ed["row"]]
-            for key in ("weight", "reps", "rpe", "done"):
-                if key in ed:
-                    row[key] = ed[key]
-        wo.add_set(blocks, 1)
-        blocks[1]["note"] = "felt fast"
-        saved, workout_prs, bad = wo.save_workout(store, 13, 0, blocks, cfg)
-        after = wo.workout_model(store, 13, 0, cfg)
+    prs = {}
+    for ex in list(MAIN) + ["Box Squat", "Barbell Row", "Box Jump"]:
+        rms = rep_maxes(lifts, ex)
+        best = best_e1rm(lifts, ex)
+        prs[ex] = {"repMaxes": {str(n): entry_json(e) for n, e in rms.items()},
+                   "bestE1rm": best.e1rm if best else None,
+                   "history": [[d.isoformat(), v] for d, v in e1rm_history(lifts, ex)]}
 
-        new_pr_cases = []
-        lifts = store.lifts()
-        for e in [x for x in lifts if x.week == 13 and x.day == 0 and x.done]:
-            new_pr_cases.append({"entry": entry_json(e), "prs": new_prs(lifts, e)})
+    jumps = []
+    for jump in JUMP_STANDARDS:
+        for best in (None, 10, 20, 30, 51, 60, 84, 100, 213, 250):
+            hu = cfg.height_unit
+            jumps.append({"exercise": jump, "best": best, "height": height, "unit": hu,
+                          "targets": [list(t) for t in jump_targets(jump, height, hu)],
+                          "level": jump_level(jump, best, height, hu)})
 
-        return {"unit": unit, "increment": increment, "height": height,
-                "entries": [entry_json(e) for e in entries],
-                "workouts": workouts, "trainingMaxes": tms, "prs": prs, "jumps": jumps,
-                "save": {"week": 13, "day": 0, "edits": edits, "extraSetBlock": 1, "note": "felt fast",
-                         "saved": [entry_json(e) for e in saved], "workoutPrs": workout_prs, "bad": bad,
-                         "after": [{"exercise": b["p"].exercise, "source": b["source"], "note": b["note"],
-                                    "rows": b["rows"]} for b in after],
-                         "progress": [list(wo.day_progress(store, 13, d)) for d in range(3)],
-                         "newPrs": new_pr_cases}}
+    # save a session with edits: two done squat sets (one a PR), a done set with no reps, an extra set
+    blocks = wo.workout_model(store, 13, 0, cfg)
+    edits = [{"block": 1, "row": 0, "weight": f"{round(265 * (1 if unit == 'lb' else 0.4536), 1):g}",
+              "reps": "3", "rpe": "9", "done": True},
+             {"block": 1, "row": 1, "done": True},
+             {"block": 2, "row": 0, "reps": "", "done": True},
+             {"block": 0, "row": 0, "done": True}]
+    for ed in edits:
+        row = blocks[ed["block"]]["rows"][ed["row"]]
+        for key in ("weight", "reps", "rpe", "done"):
+            if key in ed:
+                row[key] = ed[key]
+    wo.add_set(blocks, 1)
+    blocks[1]["note"] = "felt fast"
+    saved, workout_prs, bad = wo.save_workout(store, 13, 0, blocks, cfg)
+    after = wo.workout_model(store, 13, 0, cfg)
+
+    new_pr_cases = []
+    lifts = store.lifts()
+    for e in [x for x in lifts if x.week == 13 and x.day == 0 and x.done]:
+        new_pr_cases.append({"entry": entry_json(e), "prs": new_prs(lifts, e)})
+
+    return {"unit": unit, "increment": increment, "height": height,
+            "entries": [entry_json(e) for e in entries],
+            "workouts": workouts, "trainingMaxes": tms, "prs": prs, "jumps": jumps,
+            "save": {"week": 13, "day": 0, "edits": edits, "extraSetBlock": 1, "note": "felt fast",
+                     "saved": [entry_json(e) for e in saved], "workoutPrs": workout_prs, "bad": bad,
+                     "after": [{"exercise": b["p"].exercise, "source": b["source"], "note": b["note"],
+                                "rows": b["rows"]} for b in after],
+                     "progress": [list(wo.day_progress(store, 13, d)) for d in range(3)],
+                     "newPrs": new_pr_cases}}
 
 
 def build() -> dict:

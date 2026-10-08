@@ -1,0 +1,42 @@
+name: Phone app (Expo)
+
+# Checks the Expo phone app in mobile/: TypeScript, the tests (including the golden tests that the TypeScript
+# training logic matches the Python original exactly), Expo's own checks, and a web build as a smoke test.
+# Store builds happen in Expo's cloud (EAS), started by SHIP_TO_TESTFLIGHT.bat - not here.
+
+on:
+  push:
+    branches: [main]
+    paths: ["mobile/**", "src/ruskimaxxing/**", "tools/export_mobile_fixtures.py", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["mobile/**", "src/ruskimaxxing/**", "tools/export_mobile_fixtures.py", ".github/workflows/mobile.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Golden data is up to date with the Python logic
+        working-directory: .
+        run: pip install -q -e . && python tools/export_mobile_fixtures.py --check
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx jest --ci
+      - run: npx expo-doctor
+      - name: Web build (smoke test)
+        run: npx expo export --platform web

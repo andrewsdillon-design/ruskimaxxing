@@ -156,3 +156,21 @@ def test_sign_in_link_expiry_and_cancel(tmp_path, transport):
     phone.start_browser_sign_in()
     phone.store.set("cloud_link_until", "1")                    # long expired
     assert phone.pending_code == "" and "Not signed in" in phone.status()
+
+
+def test_wrong_password_on_delete_keeps_you_signed_in(tmp_path):
+    """DELETE /api/account answers 401 "Wrong password"; that isn't an expired session."""
+    from ruskimaxxing.storage import Store
+    from ruskimaxxing.sync import Cloud, CloudError
+
+    store = Store(tmp_path / "d.db")
+    store.set("cloud_token", "tok")
+    store.set("cloud_email", "me@example.com")
+    cloud = Cloud(store, transport=lambda method, url, body, token: (401, {"detail": "Wrong password"}))
+    with pytest.raises(CloudError, match="Wrong password"):
+        cloud.delete_account("nope")
+    assert cloud.logged_in
+    cloud.transport = lambda method, url, body, token: (401, {"detail": "Please log in again"})
+    with pytest.raises(CloudError):
+        cloud.sync()
+    assert not cloud.logged_in

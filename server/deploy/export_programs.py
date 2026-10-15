@@ -72,6 +72,16 @@ PROGRAMS = {
                         "and Boring But Big, then an anchor with all-out + sets, on the club's 12-week test "
                         "calendar. Slow, steady progress that lasts for years."),
     },
+    "combat-conjugate-2day": {
+        "edition": "standard",
+        "builder": "program_designs.combat_conjugate",
+        "level": "Intermediate",
+        "name": "Combat Sports Conjugate 2-Day",
+        "description": ("Westside-style upper/lower strength for wrestlers, grapplers, boxers and MMA fighters, "
+                        "two days a week: a max-effort and a speed lift each day, neck, grip, hip and trunk "
+                        "work, and one short power finisher - the mat builds the gas tank. Same 12-week test "
+                        "calendar as the club."),
+    },
     "strongman-conditioning": {
         "edition": "standard",
         "builder": "program_designs.strongman",

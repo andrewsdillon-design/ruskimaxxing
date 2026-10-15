@@ -112,6 +112,32 @@ def test_531_leader_anchor(client):
     assert names <= set(prog["exercises"])
 
 
+def test_combat_conjugate(client):
+    prog = client.get("/v1/programs/combat-conjugate-2day").json()
+    assert prog["kind"] == "program" and prog["days_per_week"] == 2 and len(prog["sessions"]) == 53 * 2
+    by_week = {(s["week"], s["day_index"]): s for s in prog["sessions"]}
+    for day in (0, 1):
+        ex = by_week[(1, day)]["exercises"]
+        me = [e for e in ex if e["kind"] == "variation"]
+        assert len(me) == 1 and me[0]["reps"] == "1-3RM" and me[0]["percent"] is None
+        assert [e for e in ex if e["kind"] == "main"]  # a speed lift every day
+        assert len([e for e in ex if e["kind"] == "conditioning"]) == 1  # one short finisher, nothing more
+        assert any("Neck" in e["exercise"] for e in ex)
+    # the lower day's speed lift is whichever of squat and pull the max-effort lift wasn't
+    for week in (1, 5, 9):
+        ex = by_week[(week, 0)]["exercises"]
+        me = [e for e in ex if e["kind"] == "variation"][0]["exercise"]
+        de = [e for e in ex if e["kind"] == "main"][0]["exercise"]
+        assert (de == "Deadlift") == ("Squat" in me)
+    assert by_week[(5, 1)]["exercises"][1]["exercise"] != by_week[(1, 1)]["exercises"][1]["exercise"]
+    for week in (11, 12):  # no conditioning in taper or test weeks
+        assert not [e for d in (0, 1) for e in by_week[(week, d)]["exercises"] if e["kind"] == "conditioning"]
+    tests = {e["exercise"] for s in prog["sessions"] if s["week"] == 12 for e in s["exercises"] if e["kind"] == "test"}
+    assert tests == {"Squat", "Bench Press", "Deadlift"}
+    names = {e["exercise"] for s in prog["sessions"] for e in s["exercises"]}
+    assert names <= set(prog["exercises"])
+
+
 def test_unknown_program_404(client):
     assert client.get("/v1/programs/nope").status_code == 404
 

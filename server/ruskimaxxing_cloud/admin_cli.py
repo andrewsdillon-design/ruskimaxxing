@@ -5,6 +5,7 @@ Run with the app's environment loaded (DATABASE_URL etc. - see deploy/*.env) fro
     python -m ruskimaxxing_cloud.admin_cli create-admin you@example.com
     python -m ruskimaxxing_cloud.admin_cli reset-totp you@example.com
     python -m ruskimaxxing_cloud.admin_cli demote you@example.com
+    python -m ruskimaxxing_cloud.admin_cli report --days 30
 
 See server/README.md "Admin" for the exact command to run against a live install.
 """
@@ -97,6 +98,38 @@ def demote(email: str) -> None:
         print(f"{email} is no longer an admin (signed out of /admin everywhere).")
 
 
+def report(days: int = 30) -> None:
+    """Accounts only: sign-ups, syncs and plans. Training data stays private unless a lifter gives coaching consent."""
+    from datetime import timedelta
+
+    from .main import ProgramPurchase, utcnow
+
+    since = utcnow() - timedelta(days=days)
+    with Session(make_engine()) as s:
+        users = list(s.scalars(select(User).order_by(User.created.desc())))
+        new = [u for u in users if u.created and u.created >= since]
+        synced = [u for u in users if u.last_sync_at and u.last_sync_at >= since]
+        bought = list(s.scalars(select(ProgramPurchase).where(ProgramPurchase.purchased_at >= since,
+                                                              ProgramPurchase.refunded_at.is_(None))))
+        paying = [u for u in users if u.plan_status in ("active", "trialing")]
+        print(f"RUSKIMAXXING APP (last {days} days)")
+        print("=" * 60)
+        print(f"Accounts: {len(users)} total, {len(new)} new, {len(synced)} synced the app, "
+              f"{len(paying)} on a paid plan, {len(bought)} program purchases")
+        print(f"\nNew sign-ups ({len(new)}):")
+        for u in new:
+            seen = u.last_sync_at.date().isoformat() if u.last_sync_at else "hasn't synced yet"
+            plan = f", plan: {u.plan_status}" if u.plan_status else ""
+            print(f"  - {u.email}, joined {u.created.date().isoformat()}, last sync: {seen}{plan}")
+        if not new:
+            print("  (none)")
+        quiet = [u for u in new if not u.last_sync_at]
+        if quiet:
+            print(f"\nSigned up but never synced the app ({len(quiet)}) - they may need help getting started:")
+            for u in quiet:
+                print(f"  - {u.email}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m ruskimaxxing_cloud.admin_cli",
                                      description="Manage RuskiMaxxing Cloud admin accounts.")
@@ -108,9 +141,12 @@ def main(argv: list[str] | None = None) -> None:
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("email")
-        p.set_defaults(fn=fn)
+        p.set_defaults(fn=lambda a, fn=fn: fn(a.email))
+    p = sub.add_parser("report", help="accounts: new sign-ups, who synced, paid plans")
+    p.add_argument("--days", type=int, default=30)
+    p.set_defaults(fn=lambda a: report(a.days))
     args = parser.parse_args(argv)
-    args.fn(args.email)
+    args.fn(args)
 
 
 if __name__ == "__main__":

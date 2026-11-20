@@ -383,3 +383,22 @@ def test_unknown_email_still_runs_password_hash(monkeypatch, app):
     with m.Session(app.state.engine) as s:
         assert m.check_password(s, "nobody@example.com", "whatever-123") is None
     assert calls == [m.DUMMY_HASH]
+
+
+def test_report_lists_new_signups_without_training_data(tmp_path, monkeypatch, capsys):
+    from ruskimaxxing_cloud import admin_cli
+    from sqlalchemy.orm import Session
+    url = f"sqlite:///{tmp_path}/report.db"
+    monkeypatch.setenv("DATABASE_URL", url)
+    engine = m.make_engine(url)
+    with Session(engine) as s:
+        s.add(m.User(email="new@example.com", password_hash="x", created=m.utcnow()))
+        s.add(m.User(email="synced@example.com", password_hash="x", created=m.utcnow(), last_sync_at=m.utcnow(),
+                     plan_status="active"))
+        s.add(m.User(email="old@example.com", password_hash="x", created=m.utcnow() - timedelta(days=90)))
+        s.commit()
+    admin_cli.main(["report", "--days", "30"])
+    out = capsys.readouterr().out
+    assert "3 total, 2 new, 1 synced the app, 1 on a paid plan" in out
+    assert "new@example.com" in out and "old@example.com" not in out
+    assert "never synced the app (1)" in out
